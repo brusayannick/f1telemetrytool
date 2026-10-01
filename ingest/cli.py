@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import os
 import shutil
 import sys
 import time
@@ -393,16 +394,31 @@ def cmd_watch(args: argparse.Namespace) -> int:
     init_cache(args.cache)
     client = ConvexIngestClient()
     store = build_blob_store(client)
+    target = os.environ.get("CONVEX_URL", "unknown")
 
     print(
-        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] watching for requests every "
+        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] watching {target} for requests every "
         f"{args.interval:.0f}s (Ctrl-C to stop)"
     )
     while True:
+        # Never let a transient network failure kill the daemon: log it and retry.
+        try:
+            client.heartbeat(target)
+        except Exception as err:  # noqa: BLE001 - a worker must outlive a bad request
+            print(
+                f"[{datetime.now():%Y-%m-%d %H:%M:%S}] heartbeat failed: "
+                f"{type(err).__name__}: {err}",
+                file=sys.stderr,
+            )
+
         try:
             requested = client.query("sessions:requestedSessions", {})
-        except IngestError as err:
-            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] poll failed: {err}", file=sys.stderr)
+        except Exception as err:  # noqa: BLE001 - keep polling
+            print(
+                f"[{datetime.now():%Y-%m-%d %H:%M:%S}] poll failed: "
+                f"{type(err).__name__}: {err}",
+                file=sys.stderr,
+            )
             requested = []
 
         for entry in requested:
@@ -522,8 +538,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Worker configuration file (default: ingest/.env, e.g. ingest/.env.prod)",
     )
+    parser.add_argument(
+        "--prod",
+        action="store_true",
+        help="Shorthand for --env-file ingest/.env.prod (the deployment the public site uses)",
+    )
     args = parser.parse_args(argv)
-    load_env(args.env_file)
+    env_file = args.env_file or (
+        str(Path(__file__).parent / ".env.prod") if args.prod else None
+    )
+    load_env(env_file)
     try:
         return int(args.func(args))
     except IngestError as err:

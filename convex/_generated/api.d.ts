@@ -14,6 +14,7 @@ import type * as ingest from "../ingest.js";
 import type * as schedule from "../schedule.js";
 import type * as sessions from "../sessions.js";
 import type * as telemetry from "../telemetry.js";
+import type * as worker from "../worker.js";
 
 import type {
   ApiFromModules,
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   schedule: typeof schedule;
   sessions: typeof sessions;
   telemetry: typeof telemetry;
+  worker: typeof worker;
 }>;
 
 /**

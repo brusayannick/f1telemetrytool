@@ -36,6 +36,20 @@ def _prune_nulls(value: Any) -> Any:
     return value
 
 
+def _request(method: str, url: str, **kwargs: Any) -> requests.Response:
+    """Perform an HTTP request, turning transport failures into :class:`IngestError`.
+
+    A transient timeout or connection reset must not surface as an unhandled
+    exception: callers — notably the long-running ``watch`` daemon — treat
+    ``IngestError`` as retryable and carry on. Without this, one slow response kills
+    the worker it is meant to keep running.
+    """
+    try:
+        return requests.request(method, url, **kwargs)
+    except requests.RequestException as err:
+        raise IngestError(f"{url}: {type(err).__name__}: {err}") from err
+
+
 class ConvexIngestClient:
     def __init__(
         self,
@@ -57,7 +71,8 @@ class ConvexIngestClient:
     # -- low level ---------------------------------------------------------
 
     def _post(self, path: str, payload: dict[str, Any]) -> Any:
-        response = requests.post(
+        response = _request(
+            "post",
             f"{self.site_url}/ingest/{path}",
             json=_prune_nulls(payload),
             headers={"x-ingest-secret": self.secret},
@@ -73,7 +88,8 @@ class ConvexIngestClient:
     def query(self, path: str, args: dict[str, Any]) -> Any:
         if not self.cloud_url:
             raise IngestError("CONVEX_URL must be set to use public queries.")
-        response = requests.post(
+        response = _request(
+            "post",
             f"{self.cloud_url}/api/query",
             json={"path": path, "args": args, "format": "json"},
             timeout=self.timeout,
@@ -132,7 +148,8 @@ class ConvexIngestClient:
     def upload_telemetry(self, data: bytes) -> str:
         """Upload a binary payload and return the Convex storage id."""
         upload_url = self._post("uploadUrl", {})
-        response = requests.post(
+        response = _request(
+            "post",
             upload_url,
             data=data,
             headers={"Content-Type": "application/octet-stream"},
@@ -183,3 +200,11 @@ class ConvexIngestClient:
     def storage_usage(self) -> dict[str, Any]:
         """Convex telemetry storage footprint (files + bytes)."""
         return self.query("telemetry:storageUsage", {})
+
+    def heartbeat(self, deployment: str) -> None:
+        """Announce that a worker is watching this deployment.
+
+        Stored in the deployment, so a deployment with no worker shows no heartbeat and
+        the web UI can say so instead of waiting silently forever.
+        """
+        self._post("heartbeat", {"deployment": deployment})

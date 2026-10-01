@@ -47,6 +47,9 @@ export default defineSchema({
     ingestStatus,
     telemetryAvailability,
     lastError: v.optional(v.string()),
+    // when the browser asked for this session; lets the UI show elapsed time and
+    // offer a way out if no worker ever picks it up
+    requestedAtMs: v.optional(v.number()),
   })
     .index("by_event", ["eventId"])
     .index("by_event_name", ["eventId", "name"])

@@ -211,4 +211,17 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/ingest/heartbeat",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!authorized(request)) return unauthorized();
+    const body = (await request.json()) as { deployment?: string };
+    await ctx.runMutation(internal.worker.recordHeartbeat, {
+      deployment: body.deployment ?? "unknown",
+    });
+    return json("ok");
+  }),
+});
+
 export default http;

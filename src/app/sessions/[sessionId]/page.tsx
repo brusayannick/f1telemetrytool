@@ -28,6 +28,8 @@ export default function SessionPage() {
   const results = useQuery(api.sessions.listResults, { sessionId });
   const telemetryFiles = useQuery(api.telemetry.listTelemetryFiles, { sessionId });
   const requestIngest = useMutation(api.sessions.requestIngest);
+  const cancelRequest = useMutation(api.sessions.cancelIngestRequest);
+  const worker = useQuery(api.worker.status);
 
   const [driverNumber, setDriverNumber] = useState<string | null>(null);
   const [lapNumber, setLapNumber] = useState<number | null>(null);
@@ -40,11 +42,33 @@ export default function SessionPage() {
   const ingesting = ingestStatus === "ingesting";
   const canRequest = !loaded && !waiting && !ingesting;
 
+  // A worker checks in every few seconds; a stale heartbeat means nobody is listening
+  // to this deployment, so a request would otherwise wait forever.
+  const workerAgeMs = worker ? Date.now() - worker.lastSeenMs : null;
+  const workerOnline = workerAgeMs !== null && workerAgeMs < 45_000;
+  const requestedAgeMs = bundle?.session.requestedAtMs
+    ? Date.now() - bundle.session.requestedAtMs
+    : null;
+  const requestStale =
+    waiting && requestedAgeMs !== null && requestedAgeMs > 45_000;
+
   const handleRequest = async () => {
     setRequestPending(true);
     setRequestError(null);
     try {
       await requestIngest({ sessionId });
+    } catch (cause) {
+      setRequestError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setRequestPending(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    setRequestPending(true);
+    setRequestError(null);
+    try {
+      await cancelRequest({ sessionId });
     } catch (cause) {
       setRequestError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -150,12 +174,24 @@ export default function SessionPage() {
                 className="rounded-full border border-accent-600 px-4 py-1.5 text-xs font-medium text-accent-700 transition-colors hover:bg-accent-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {waiting
-                  ? "Waiting for the worker…"
+                  ? workerOnline
+                    ? "Waiting for the worker…"
+                    : "Waiting — no worker running"
                   : ingesting
                     ? "Fetching telemetry…"
                     : requestPending
                       ? "Requesting…"
                       : "Load telemetry"}
+              </button>
+            )}
+            {waiting && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={requestPending}
+                className="rounded-full px-3 py-1.5 text-xs font-medium text-muted underline-offset-4 transition-colors hover:text-accent-700 hover:underline disabled:opacity-50"
+              >
+                Cancel request
               </button>
             )}
           </div>
@@ -167,6 +203,22 @@ export default function SessionPage() {
         )}
         {requestError && (
           <p className="mt-2 font-mono text-[11px] text-danger">{requestError}</p>
+        )}
+        {waiting && (
+          <p
+            className={`mt-2 max-w-xl text-xs leading-relaxed ${
+              workerOnline ? "text-muted" : "text-warning"
+            }`}
+          >
+            {workerOnline
+              ? `A worker is watching this deployment (checked in ${Math.max(
+                  1,
+                  Math.round((workerAgeMs ?? 0) / 1000),
+                )}s ago). Fetching a session usually takes under a minute.`
+              : requestStale
+                ? "No worker is watching this deployment, so this request will not be picked up. Start one with python -m ingest.cli watch — add --prod if this is the deployed site — or cancel the request."
+                : "Waiting for a worker to check in… if none is running, start one with python -m ingest.cli watch (--prod for the deployed site)."}
+          </p>
         )}
         {bundle && !loaded && (
           <p className="mt-3 max-w-xl text-xs leading-relaxed text-muted">

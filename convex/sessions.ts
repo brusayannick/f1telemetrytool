@@ -81,6 +81,7 @@ export const getSession = query({
         ingestStatus: session.ingestStatus,
         telemetryAvailability: session.telemetryAvailability,
         lastError: session.lastError ?? null,
+        requestedAtMs: session.requestedAtMs ?? null,
       },
       event: event
         ? {
@@ -189,8 +190,31 @@ export const requestIngest = mutation({
     await ctx.db.patch(sessionId, {
       ingestStatus: "requested",
       lastError: undefined,
+      requestedAtMs: Date.now(),
     });
     return "requested";
+  },
+});
+
+/**
+ * Withdraw a request no worker picked up, so a session cannot sit in `requested`
+ * forever when the worker is not running.
+ */
+export const cancelIngestRequest = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, { sessionId }) => {
+    const session = await ctx.db.get(sessionId);
+    if (!session) {
+      throw new Error("session not found");
+    }
+    if (session.ingestStatus !== "requested") {
+      return session.ingestStatus;
+    }
+    await ctx.db.patch(sessionId, {
+      ingestStatus: "pending",
+      requestedAtMs: undefined,
+    });
+    return "pending";
   },
 });
 

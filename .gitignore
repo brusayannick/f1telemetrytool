@@ -50,3 +50,5 @@ next-env.d.ts
 backfill.log
 calendar-sync.log
 prod-calendar-sync.log
+dev-watcher.log
+prod-watcher.log
