@@ -7,12 +7,15 @@ import {
   deltaTrace,
   formatLapTime,
   gridSeries,
+  lapPosition,
   lapSeries,
   loadTelemetry,
+  type DeltaTrace,
   type LapSeries,
   type Telemetry,
 } from "@/lib/telemetry";
 import { SkeletonChart } from "@/components/skeleton";
+import { TrackMap } from "@/components/track-map";
 
 export type LapRef = {
   lapNumber: number;
@@ -71,6 +74,7 @@ type Built = {
   speed: uPlot.AlignedData;
   pedals: uPlot.AlignedData;
   delta: uPlot.AlignedData;
+  trace: DeltaTrace;
   endDistanceM: number;
   totalDeltaMs: number;
   biggestGainMs: number;
@@ -131,6 +135,7 @@ function build(a: LapSeries, b: LapSeries): Built | null {
     speed,
     pedals,
     delta,
+    trace,
     endDistanceM: trace.dist[trace.dist.length - 1] ?? 0,
     totalDeltaMs: trace.delta[trace.delta.length - 1] ?? 0,
     biggestGainMs,
@@ -177,6 +182,11 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
     if (!seriesA || !seriesB) return null;
     return build(seriesA, seriesB);
   }, [telemetryA, telemetryB, a.lap, b.lap]);
+
+  const position = useMemo(
+    () => (telemetryA ? lapPosition(telemetryA, a.lap) : null),
+    [telemetryA, a.lap],
+  );
 
   const syncOptions = useMemo(
     () => ({ cursor: { sync: { key: "f1-telemetry" } } as uPlot.Cursor, scales: { x: { time: false } } }),
@@ -297,6 +307,18 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
           Throttle (solid) + brake (dashed)
         </p>
         <div ref={pedalsRef} className="w-full" />
+      </div>
+
+      <div>
+        <p className="mb-2 font-mono text-[11px] uppercase tracking-widest text-muted">
+          Track — where {b.label} gains and loses
+        </p>
+        <TrackMap
+          position={position}
+          delta={built.trace}
+          baseLabel={a.label}
+          otherLabel={b.label}
+        />
       </div>
 
       <div>

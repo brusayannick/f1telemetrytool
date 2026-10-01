@@ -200,6 +200,44 @@ export function deltaTrace(base: LapSeries, other: LapSeries): DeltaTrace {
   return { dist, delta };
 }
 
+/** One lap's path around the circuit, in metres. */
+export type LapPosition = {
+  x: Float64Array;
+  y: Float64Array;
+  dist: Float64Array; // metres since lap start, matching the telemetry distance channel
+};
+
+/**
+ * Extract one lap's positional trace.
+ *
+ * FastF1 stores X/Y in decimetres, so they are converted to metres here; the units
+ * only matter for aspect ratio, but keeping them honest avoids surprises later.
+ */
+export function lapPosition(telemetry: Telemetry, lap: LapInfo): LapPosition | null {
+  const range = lapRange(telemetry, lap);
+  if (!range) return null;
+
+  const [start, end] = range;
+  const size = end - start;
+  const { x, y, dist } = telemetry.channels;
+  const origin = dist[start];
+
+  const position: LapPosition = {
+    x: new Float64Array(size),
+    y: new Float64Array(size),
+    dist: new Float64Array(size),
+  };
+
+  for (let i = 0; i < size; i += 1) {
+    const j = start + i;
+    position.x[i] = x[j] / 10;
+    position.y[i] = y[j] / 10;
+    position.dist[i] = dist[j] - origin;
+  }
+
+  return position;
+}
+
 /** Format a duration in milliseconds as m:ss.mmm. */
 export function formatLapTime(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
