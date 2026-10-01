@@ -63,6 +63,14 @@ def ingest_one(
             print(f"  results: {len(results)} drivers")
 
         drivers = nz.driver_numbers(session)
+        if not drivers and nz.expects_timing(session):
+            raise RuntimeError(
+                "The F1 timing feed returned no session data (empty laps and "
+                "telemetry). Refusing to store an empty session — this usually "
+                "means the feed blocks this network (cloud/datacenter IPs are "
+                "commonly blocked, e.g. GitHub Actions). Run the ingest from a "
+                "residential connection or a self-hosted runner."
+            )
         with_file = 0
         failed = 0
         for driver_number in drivers:

@@ -52,3 +52,23 @@ FastF1 enforces conservative limits on the official feed (≈4 requests/second s
 500 requests/hour hard) and each session takes roughly 40–60 requests, so expect
 around ten sessions per hour. Keep the FastF1 cache enabled between runs — CI uses
 `$RUNNER_TEMP` and therefore starts cold each time.
+
+## ⋎ Where can this run?
+
+The F1 livetiming feed **blocks many cloud/datacenter IP ranges**. A GitHub-hosted
+runner gets *empty* session data instead of an error (FastF1 logs "Failed to load
+timing data", "Car telemetry data is unavailable"), while the Ergast-style results
+still succeed — so a run can look green while storing nothing.
+
+Because of that, the worker refuses to mark a session complete when laps are empty
+but ``F1ApiSupport`` says timing should exist; the session is marked ``failed`` with
+an explanatory ``lastError`` instead.
+
+Run ingestion from:
+
+- **your own machine** (residential IP) — `python -m ingest.cli run-due`,
+- a **self-hosted GitHub Actions runner** on that machine (keeps the dispatch flow), or
+- a host whose IP is not blocked (verify before relying on it).
+
+GitHub-hosted runners remain useful for the *scheduling* half: the Convex cron
+dispatches the workflow, and a self-hosted runner executes it.

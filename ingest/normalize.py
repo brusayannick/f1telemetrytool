@@ -203,6 +203,20 @@ def session_meta(session) -> dict[str, Any]:
     }
 
 
+def expects_timing(session) -> bool:
+    """Whether the F1 timing feed should provide data for this session.
+
+    FastF1 exposes ``F1ApiSupport`` on the event schedule; events before 2018
+    are metadata-only. When timing is expected but absent, the feed was usually
+    unreachable (cloud/datacenter IPs are commonly blocked) rather than the
+    session genuinely having no data.
+    """
+    value = _event_field(session.event, "F1ApiSupport")
+    if value is None:
+        return int(pd.Timestamp(session.date).year) >= 2018
+    return bool(value)
+
+
 def driver_numbers(session) -> list[str]:
     try:
         values = session.laps["DriverNumber"].dropna().unique().tolist()
