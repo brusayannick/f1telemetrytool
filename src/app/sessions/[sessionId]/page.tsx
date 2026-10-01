@@ -291,9 +291,19 @@ export default function SessionPage() {
       </section>
 
       <section className="mt-10">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-          Lap
-        </h2>
+        <div className="flex items-baseline justify-between gap-4">
+          <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
+            Lap
+          </h2>
+          {activeDriver && selectedLap && (
+            <Link
+              href={`/sessions/${sessionId}/compare?aDriver=${activeDriver}&aLap=${selectedLap.lapNumber}`}
+              className="font-mono text-[11px] uppercase tracking-widest text-accent-700 transition-colors hover:text-accent-900"
+            >
+              Compare this lap →
+            </Link>
+          )}
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {(laps ?? []).map((lap) => {
             const active = selectedLap?.lapNumber === lap.lapNumber;
