@@ -164,7 +164,11 @@ export default function SessionPage() {
               {ingestStatus}
             </span>
             <span className="font-mono text-[11px] uppercase tracking-widest text-muted">
-              telemetry {bundle.session.telemetryAvailability}
+              {telemetryFiles === undefined
+                ? "telemetry …"
+                : bundle.session.telemetryAvailability === "none"
+                  ? "no car telemetry in the feed"
+                  : `telemetry ${telemetryFiles.length}/${results?.length ?? "?"} drivers`}
             </span>
             {!loaded && (
               <button

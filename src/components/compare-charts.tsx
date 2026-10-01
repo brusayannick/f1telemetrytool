@@ -77,11 +77,21 @@ type Built = {
   trace: DeltaTrace;
   endDistanceM: number;
   totalDeltaMs: number;
+  /** Median spacing between telemetry samples — the resolution limit of the trace. */
+  sampleIntervalMs: number;
   biggestGainMs: number;
   biggestGainAtM: number;
   biggestLossMs: number;
   biggestLossAtM: number;
 };
+
+function medianStep(times: Float64Array): number {
+  if (times.length < 3) return 0;
+  const steps: number[] = [];
+  for (let i = 1; i < times.length; i += 1) steps.push(times[i] - times[i - 1]);
+  steps.sort((x, y) => x - y);
+  return steps[Math.floor(steps.length / 2)];
+}
 
 function build(a: LapSeries, b: LapSeries): Built | null {
   const gridA = gridSeries(a);
@@ -138,6 +148,7 @@ function build(a: LapSeries, b: LapSeries): Built | null {
     trace,
     endDistanceM: trace.dist[trace.dist.length - 1] ?? 0,
     totalDeltaMs: trace.delta[trace.delta.length - 1] ?? 0,
+    sampleIntervalMs: medianStep(a.time),
     biggestGainMs,
     biggestGainAtM,
     biggestLossMs,
@@ -293,6 +304,12 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
 
   const seconds = (ms: number) => `${ms >= 0 ? "+" : "−"}${Math.abs(ms / 1000).toFixed(3)}s`;
 
+  // Authoritative: the timing data. The telemetry trace cannot reproduce it exactly.
+  const officialGapMs =
+    a.lap.lapTimeMs !== null && b.lap.lapTimeMs !== null
+      ? b.lap.lapTimeMs - a.lap.lapTimeMs
+      : built.totalDeltaMs;
+
   return (
     <div className="space-y-6">
       <div>
@@ -328,7 +345,7 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
         <div ref={deltaRef} className="w-full" />
       </div>
 
-      <dl className="grid gap-4 border-t border-line pt-4 sm:grid-cols-4">
+      <dl className="grid gap-4 border-t border-line pt-4 sm:grid-cols-3 lg:grid-cols-5">
         <div>
           <dt className="font-mono text-[10px] uppercase tracking-widest text-muted">
             {a.label} lap
@@ -343,13 +360,21 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
         </div>
         <div>
           <dt className="font-mono text-[10px] uppercase tracking-widest text-muted">
-            {b.label} @ {(built.endDistanceM / 1000).toFixed(2)} km
+            Official gap
           </dt>
           <dd
             className={`font-mono text-lg tabular-nums ${
-              built.totalDeltaMs > 0 ? "text-danger" : "text-success"
+              officialGapMs > 0 ? "text-danger" : "text-success"
             }`}
           >
+            {seconds(officialGapMs)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-mono text-[10px] uppercase tracking-widest text-muted">
+            Trace ends @ {(built.endDistanceM / 1000).toFixed(2)} km
+          </dt>
+          <dd className="font-mono text-lg tabular-nums text-muted">
             {seconds(built.totalDeltaMs)}
           </dd>
         </div>
@@ -368,6 +393,13 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
           </dd>
         </div>
       </dl>
+      <p className="text-xs leading-relaxed text-muted">
+        The official gap comes from the timing data and is exact. The trace is built from
+        telemetry sampled every ~{Math.round(built.sampleIntervalMs)} ms, and a lap window
+        cannot land exactly on the line crossing, so the gap on the trace at its last point
+        differs from the official figure by up to roughly one sample. Read the trace for
+        where the time moves, not for its end value.
+      </p>
     </div>
   );
 }
