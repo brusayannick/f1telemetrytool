@@ -1,0 +1,58 @@
+name: ingest-session
+
+on:
+  workflow_dispatch:
+    inputs:
+      sessionKey:
+        description: "Convex session id (preferred — dispatched by the Convex cron)"
+        required: false
+        type: string
+      year:
+        description: "Season year (manual runs)"
+        required: false
+        type: string
+      gp:
+        description: "Event name or round number (manual runs)"
+        required: false
+        type: string
+      session:
+        description: "Session identifier, e.g. R, Q, FP1 or 'Race'"
+        required: false
+        type: string
+        default: R
+
+concurrency:
+  group: ingest-session-${{ inputs.sessionKey || inputs.year }}-${{ inputs.gp }}-${{ inputs.session }}
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ingest/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r ingest/requirements.txt
+
+      - name: Ingest session
+        env:
+          CONVEX_SITE_URL: ${{ secrets.CONVEX_SITE_URL }}
+          CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          FASTF1_CACHE: ${{ runner.temp }}/fastf1-cache
+        run: |
+          if [ -n "${{ inputs.sessionKey }}" ]; then
+            python -m ingest.cli by-session --session-key "${{ inputs.sessionKey }}"
+          else
+            python -m ingest.cli ingest \
+              --year "${{ inputs.year }}" \
+              --gp "${{ inputs.gp }}" \
+              --session "${{ inputs.session }}"
+          fi

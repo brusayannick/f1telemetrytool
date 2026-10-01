@@ -32,6 +32,12 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!ingest/.env.example
+
+# python
+.venv/
+__pycache__/
+*.pyc
 
 # vercel
 .vercel

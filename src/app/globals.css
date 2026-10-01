@@ -1,1 +1,65 @@
 @import "tailwindcss";
+
+@theme {
+  /* Neutrals */
+  --color-ink: #0b0b0b;
+  --color-muted: #5c5f66;
+  --color-line: #e7e8ea;
+  --color-paper: #ffffff;
+  --color-canvas: #f6f6f2;
+  --color-tile-accent: #edf5f6;
+  --color-tile-sand: #f4f1e9;
+  --color-tile-lilac: #f1f0f5;
+
+  /* Accent — petrol ramp built on #005f73 */
+  --color-accent-50: #f0f7f8;
+  --color-accent-100: #dceff2;
+  --color-accent-200: #b4dfe6;
+  --color-accent-300: #85c6d1;
+  --color-accent-400: #4aa3b4;
+  --color-accent-500: #1f7f92;
+  --color-accent-600: #005f73;
+  --color-accent-700: #004e5f;
+  --color-accent-800: #003d4b;
+  --color-accent-900: #002d38;
+
+  /* Status */
+  --color-success: #2b8a3e;
+  --color-warning: #b45309;
+  --color-danger: #c92a2a;
+
+  /* Data-viz palette */
+  --color-dv-a: #005f73;
+  --color-dv-b: #c2410c;
+  --color-dv-anomaly: #c2255c;
+  --color-dv-throttle: #2b8a3e;
+  --color-dv-brake: #e03131;
+  --color-dv-gear: #495057;
+  --color-dv-rpm: #e8590c;
+  --color-dv-drs: #1098ad;
+
+  --radius-card: 1.25rem;
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-inter), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  ::selection {
+    background-color: var(--color-accent-200);
+  }
+}
+
