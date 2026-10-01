@@ -80,6 +80,7 @@ export const getSession = query({
         endTime: session.endTime,
         ingestStatus: session.ingestStatus,
         telemetryAvailability: session.telemetryAvailability,
+        lastError: session.lastError ?? null,
       },
       event: event
         ? {

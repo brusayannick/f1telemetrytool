@@ -78,6 +78,14 @@ def ingest_one(
                 "commonly blocked, e.g. GitHub Actions). Run the ingest from a "
                 "residential connection or a self-hosted runner."
             )
+
+        if telemetry and not nz.has_car_telemetry(session):
+            print(
+                "  the feed has no car telemetry for this session "
+                "(common for 2018–2019) — storing timing data only"
+            )
+            telemetry = False
+
         with_file = 0
         failed = 0
         for driver_number in drivers:
@@ -123,7 +131,10 @@ def ingest_one(
                     print(f"  driver {driver_number}: {len(laps)} laps (no telemetry)")
             except Exception as err:  # noqa: BLE001 - keep going per driver
                 failed += 1
-                print(f"  ! driver {driver_number}: {err}", file=sys.stderr)
+                print(
+                    f"  ! driver {driver_number}: {type(err).__name__}: {err}",
+                    file=sys.stderr,
+                )
 
         if not telemetry:
             availability = "none"

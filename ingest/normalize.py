@@ -396,6 +396,19 @@ def stints_rows(session, driver_number: str) -> list[dict[str, Any]]:
 # -- telemetry payload ---------------------------------------------------------
 
 
+def has_car_telemetry(session) -> bool:
+    """Whether the feed actually carries car/position data for this session.
+
+    Some 2018–2019 sessions (and any session the feed does not cover) load with empty
+    ``car_data``/``pos_data``. FastF1 then raises a bare ``KeyError(driver_number)``
+    deep inside ``get_telemetry`` for every driver, so callers should check this once
+    up front instead of discovering it 20 times in a row.
+    """
+    return bool(getattr(session, "car_data", None)) and bool(
+        getattr(session, "pos_data", None)
+    )
+
+
 def telemetry_payload(
     session, driver_number: str
 ) -> tuple[bytes, dict[str, Any]] | None:

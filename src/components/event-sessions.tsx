@@ -8,6 +8,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 const statusStyles: Record<string, string> = {
   complete: "bg-accent-100 text-accent-800",
   ingesting: "bg-accent-50 text-accent-700",
+  requested: "bg-tile-lilac text-accent-800",
   dispatched: "bg-accent-50 text-accent-700",
   pending: "bg-tile-sand text-warning",
   failed: "bg-tile-lilac text-danger",
