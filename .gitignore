@@ -49,3 +49,4 @@ next-env.d.ts
 # backfill logs
 backfill.log
 calendar-sync.log
+prod-calendar-sync.log

@@ -27,7 +27,20 @@ from .blob_store import BlobStore, build_blob_store, telemetry_key
 from .convex_client import ConvexIngestClient, IngestError
 from .fastf1_source import init_cache, load_session
 
-load_dotenv(Path(__file__).parent / ".env")
+DEFAULT_ENV_FILE = Path(__file__).parent / ".env"
+
+
+def load_env(explicit: str | None = None) -> None:
+    """Load worker configuration.
+
+    Defaults to ``ingest/.env`` (the dev deployment); pass a path to target another
+    deployment, e.g. ``ingest/.env.prod`` for the deployment the public site uses.
+    Values already present in the environment still win, so exports override the file.
+    """
+    if explicit:
+        load_dotenv(explicit, override=True)
+    else:
+        load_dotenv(DEFAULT_ENV_FILE)
 
 
 def ingest_one(
@@ -504,7 +517,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
+    parser.add_argument(
+        "--env-file",
+        default=None,
+        help="Worker configuration file (default: ingest/.env, e.g. ingest/.env.prod)",
+    )
     args = parser.parse_args(argv)
+    load_env(args.env_file)
     try:
         return int(args.func(args))
     except IngestError as err:
