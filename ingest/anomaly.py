@@ -85,6 +85,14 @@ def slice_lap(
     return start, end
 
 
+#: Brake duty above this across a whole segment, at the speed below, is contradictory:
+#: no car brakes continuously through 500 m of racing speed. Observed as a real artefact
+#: in the feed (car 14, 2025 Abu Dhabi Q lap 8: brake duty 1.00 through two segments while
+#: the lap time and speed profile were normal).
+SUSPECT_BRAKE_DUTY = 0.9
+SUSPECT_BRAKE_SPEED_KMH = 150.0
+
+
 def lap_features(
     channels: dict[str, np.ndarray], start: int, end: int
 ) -> dict[str, float] | None:
@@ -105,6 +113,7 @@ def lap_features(
         "braking": float(np.mean(brake > 0)),
     }
 
+    suspect_segments = 0
     offsets = dist - dist[0]
     for segment in range(SEGMENTS):
         low = span * segment / SEGMENTS
@@ -112,11 +121,16 @@ def lap_features(
         mask = (offsets >= low) & (offsets < high)
         if not mask.any():
             continue
+        brake_duty = float(np.mean(brake[mask] > 0))
+        segment_speed = float(np.mean(speed[mask]))
+        if brake_duty > SUSPECT_BRAKE_DUTY and segment_speed > SUSPECT_BRAKE_SPEED_KMH:
+            suspect_segments += 1
         features[f"s{segment + 1}_min_speed"] = float(np.min(speed[mask]))
-        features[f"s{segment + 1}_mean_speed"] = float(np.mean(speed[mask]))
+        features[f"s{segment + 1}_mean_speed"] = segment_speed
         features[f"s{segment + 1}_throttle"] = float(np.mean(throttle[mask] >= 98))
-        features[f"s{segment + 1}_brake"] = float(np.mean(brake[mask] > 0))
+        features[f"s{segment + 1}_brake"] = brake_duty
 
+    features["suspect_brake"] = float(suspect_segments)
     return features
 
 
@@ -201,8 +215,12 @@ def analyse_session(
 
         best = min(features["lap_time_ms"] for _, features in rows)
         cutoff = best * UNREPRESENTATIVE_RATIO
-        representative = [(n, f) for n, f in rows if f["lap_time_ms"] <= cutoff]
-        unrepresentative = [(n, f) for n, f in rows if f["lap_time_ms"] > cutoff]
+        # three classes: usable baseline laps, laps that are simply not comparable, and
+        # laps whose channels are internally contradictory (a data problem, not driving)
+        suspect = [(n, f) for n, f in rows if f["suspect_brake"] > 0]
+        comparable = [(n, f) for n, f in rows if f["suspect_brake"] == 0]
+        representative = [(n, f) for n, f in comparable if f["lap_time_ms"] <= cutoff]
+        unrepresentative = [(n, f) for n, f in comparable if f["lap_time_ms"] > cutoff]
 
         if len(representative) < MIN_LAPS:
             continue
@@ -256,8 +274,128 @@ def analyse_session(
                 }
             )
 
+        for lap_number, features in suspect:
+            findings.append(
+                {
+                    "driver": driver,
+                    "lapNumber": lap_number,
+                    "score": 0.0,
+                    "category": "suspect-data",
+                    "lapTimeMs": features["lap_time_ms"],
+                    "baselineLaps": len(representative),
+                    "topFeatures": [],
+                }
+            )
+
     findings.sort(key=lambda item: -item["score"])
     return findings
+
+
+def speed_profile(
+    channels: dict[str, np.ndarray], start: int, end: int, step: float = 5.0
+) -> tuple[np.ndarray, np.ndarray]:
+    """Speed on a uniform distance grid, so two laps can be aligned by cross-correlation."""
+    dist = channels["dist"][start:end]
+    speed = channels["speed"][start:end]
+    grid = np.arange(0.0, float(dist[-1] - dist[0]), step)
+    return grid, np.interp(grid, dist - dist[0], speed)
+
+
+def best_shift(
+    reference: np.ndarray, other: np.ndarray, step: float, max_shift_m: float = 120.0
+) -> tuple[float, float]:
+    """Offset (metres) that best superimposes two speed profiles, and its residual."""
+    max_samples = int(max_shift_m / step)
+    best_shift_m, best_error = 0.0, float("inf")
+
+    for shift in range(-max_samples, max_samples + 1):
+        if shift >= 0:
+            left = reference[shift:]
+            right = other
+        else:
+            left = reference
+            right = other[-shift:]
+        # laps are not exactly the same length, so compare the overlap only
+        size = min(left.size, right.size)
+        if size < 50:
+            continue
+        error = float(np.mean(np.abs(left[:size] - right[:size])))
+        if error < best_error:
+            best_error = error
+            best_shift_m = shift * step
+    return best_shift_m, best_error
+
+
+def report_alignment(
+    client: ConvexIngestClient, session_id: str, step: float = 5.0
+) -> int:
+    """How far each lap's telemetry window is shifted against the driver's fastest lap.
+
+    Segment features compare laps at equal *distance from each lap's own window start*.
+    If those windows begin up to a sample interval apart, every segment boundary moves
+    with them and a braking zone can slide into a neighbouring segment — which would look
+    exactly like a large anomaly. This measures whether that is happening.
+    """
+    files = client.query("telemetry:listTelemetryFiles", {"sessionId": session_id})
+    all_shifts: list[float] = []
+
+    for entry in files:
+        driver = entry["driverNumber"]
+        if not entry.get("url"):
+            continue
+        laps = client.query(
+            "sessions:listLaps", {"sessionId": session_id, "driverNumber": driver}
+        )
+        payload = fetch_telemetry(entry["url"])
+        channels = channels_of(payload)
+        t0_ms = float(payload.get("t0ms") or 0)
+
+        windows: list[tuple[int, float, np.ndarray, np.ndarray]] = []
+        for lap in laps:
+            if not usable_lap(lap):
+                continue
+            window = slice_lap(channels, t0_ms, lap)
+            if window is None:
+                continue
+            grid, profile = speed_profile(channels, *window, step)
+            if profile.size < 50:
+                continue
+            windows.append((int(lap["lapNumber"]), float(lap["lapTimeMs"]), grid, profile))
+
+        if len(windows) < 3:
+            continue
+
+        reference = min(windows, key=lambda item: item[1])
+        shifts: list[tuple[int, float, float]] = []
+        for lap_number, lap_time, _grid, profile in windows:
+            if lap_number == reference[0]:
+                continue
+            # compare on the overlapping span only, which best_shift already handles
+            shift_m, residual = best_shift(reference[3], profile, step)
+            shifts.append((lap_number, shift_m, residual))
+            all_shifts.append(shift_m)
+
+        worst = max(shifts, key=lambda item: abs(item[1]))
+        print(
+            f"  car {driver:>3}  reference lap {reference[0]:>2}  "
+            f"worst shift {worst[1]:+6.0f} m (lap {worst[0]:>2}, residual "
+            f"{worst[2]:5.1f} km/h)"
+        )
+
+    if not all_shifts:
+        print("no alignable laps")
+        return 0
+
+    magnitude = np.abs(np.array(all_shifts))
+    print(
+        f"\n  {len(all_shifts)} lap comparisons | shift median {np.median(magnitude):.0f} m "
+        f"| 90th percentile {np.percentile(magnitude, 90):.0f} m | max {magnitude.max():.0f} m"
+    )
+    print(
+        "  A shift comparable to a segment boundary (~520 m here, 10 segments) would mean\n"
+        "  segments do not represent the same piece of track between laps."
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -269,12 +407,21 @@ def main(argv: list[str] | None = None) -> int:
         help="Worker configuration file (default: ingest/.env)",
     )
     parser.add_argument("--top", type=int, default=12, help="How many flags to print")
+    parser.add_argument(
+        "--alignment",
+        action="store_true",
+        help="Measure how far each lap's telemetry window is shifted against the driver's best lap",
+    )
     args = parser.parse_args(argv)
 
     load_dotenv(args.env_file or (Path(__file__).parent / ".env"))
+    client = ConvexIngestClient()
+
+    if args.alignment:
+        return report_alignment(client, args.session_id)
 
     try:
-        findings = analyse_session(ConvexIngestClient(), args.session_id)
+        findings = analyse_session(client, args.session_id)
     except IngestError as err:
         print(f"anomaly: {err}", file=sys.stderr)
         return 2
@@ -308,6 +455,20 @@ def main(argv: list[str] | None = None) -> int:
             f"preparation, spins, aborted runs):"
         )
         for item in sorted(unrepresentative, key=lambda i: i["lapTimeMs"])[: args.top]:
+            minutes, remainder = divmod(int(item["lapTimeMs"]), 60_000)
+            seconds = remainder / 1000
+            print(
+                f"  car {item['driver']:>3} lap {item['lapNumber']:>2} "
+                f"({minutes}:{seconds:06.3f})"
+            )
+
+    suspect = [item for item in findings if item["category"] == "suspect-data"]
+    if suspect:
+        print(
+            f"\n{len(suspect)} laps excluded as suspect data (heavy braking sustained at\n"
+            f"  racing speed — contradictory, so a feed artefact rather than driving):"
+        )
+        for item in suspect[: args.top]:
             minutes, remainder = divmod(int(item["lapTimeMs"]), 60_000)
             seconds = remainder / 1000
             print(
