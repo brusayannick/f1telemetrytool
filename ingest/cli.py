@@ -365,24 +365,34 @@ def cmd_calendar(args: argparse.Namespace) -> int:
     client = ConvexIngestClient()
 
     written = 0
+    failed = 0
     for year in range(args.from_year, args.to_year + 1):
-        schedule = fastf1.get_event_schedule(year, include_testing=False)
-        season_id = client.upsert_season(year)
-        for _, event in schedule.iterrows():
-            payloads = nz.calendar_payloads(event)
-            if payloads is None:
-                continue
-            event_payload, sessions = payloads
-            if event_payload["round"] == 0:
-                continue
-            event_id = client.upsert_event(season_id, event_payload)
-            for session in sessions:
-                client.upsert_session(event_id, session)
-                written += 1
-        print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {year}: calendar synced")
+        # A single slow response must not abandon the remaining seasons.
+        try:
+            schedule = fastf1.get_event_schedule(year, include_testing=False)
+            season_id = client.upsert_season(year)
+            for _, event in schedule.iterrows():
+                payloads = nz.calendar_payloads(event)
+                if payloads is None:
+                    continue
+                event_payload, sessions = payloads
+                if event_payload["round"] == 0:
+                    continue
+                event_id = client.upsert_event(season_id, event_payload)
+                for session in sessions:
+                    client.upsert_session(event_id, session)
+                    written += 1
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {year}: calendar synced")
+        except Exception as err:  # noqa: BLE001 - continue with the next season
+            failed += 1
+            print(
+                f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {year} failed: "
+                f"{type(err).__name__}: {err}",
+                file=sys.stderr,
+            )
 
-    print(f"calendar synced: {written} sessions")
-    return 0
+    print(f"calendar synced: {written} sessions ({failed} years failed)")
+    return 1 if failed else 0
 
 
 def cmd_watch(args: argparse.Namespace) -> int:
