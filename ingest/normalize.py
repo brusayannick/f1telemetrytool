@@ -374,6 +374,9 @@ def telemetry_payload(
 
     payload = {
         "n": int(len(t_rel)),
+        # absolute session time of the first sample, so clients can map lap
+        # session-times onto this slice
+        "t0ms": int(t_ms[0]),
         "order": TELEMETRY_CHANNELS,
         "channels": {name: channels[name].tobytes() for name in TELEMETRY_CHANNELS},
     }

@@ -2,10 +2,10 @@ import { ArrowLeftRight, Map, Sparkles } from "lucide-react";
 import { DemoTelemetryChart } from "@/components/demo-telemetry-chart";
 
 const nav = [
-  { label: "Seasons", href: "#" },
-  { label: "Sessions", href: "#" },
-  { label: "Compare", href: "#" },
-  { label: "Drivers", href: "#" },
+  { label: "Seasons", href: "/seasons" },
+  { label: "Sessions", href: "/seasons" },
+  { label: "Compare", href: "/seasons" },
+  { label: "Drivers", href: "/seasons" },
 ];
 
 const stats = [
@@ -79,7 +79,7 @@ export default function Home() {
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a
-                href="#"
+                href="/seasons"
                 className="rounded-full bg-accent-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-700"
               >
                 Explore seasons

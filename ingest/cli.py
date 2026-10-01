@@ -240,7 +240,7 @@ def cmd_weekend(args: argparse.Namespace) -> int:
         if not isinstance(session_name, str) or not session_name:
             continue
         status = client.status_for(args.year, round_number, session_name)
-        if status and status.get("ingestStatus") == "complete":
+        if status and status.get("ingestStatus") == "complete" and not args.force:
             print(f"skip (already complete): {session_name}")
             continue
         print(f"ingesting: {session_name}")
@@ -296,6 +296,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_weekend.add_argument("--year", type=int, required=True)
     p_weekend.add_argument("--gp", required=True, help="Event name or round number")
     p_weekend.add_argument("--no-telemetry", action="store_true")
+    p_weekend.add_argument(
+        "--force", action="store_true", help="Re-ingest sessions already marked complete"
+    )
     p_weekend.set_defaults(func=cmd_weekend)
 
     return parser
