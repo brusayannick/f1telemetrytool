@@ -186,7 +186,9 @@ http.route({
     const body = (await request.json()) as {
       sessionId: string;
       driverNumber: string;
-      storageId: string;
+      provider: string;
+      storageId?: string;
+      storageKey?: string;
       format: string;
       channels: string[];
       sampleCount: number;
@@ -196,7 +198,9 @@ http.route({
     const id = await ctx.runMutation(internal.ingest.attachTelemetryFile, {
       sessionId: body.sessionId as Id<"sessions">,
       driverNumber: body.driverNumber,
-      storageId: body.storageId as Id<"_storage">,
+      provider: body.provider,
+      storageId: body.storageId ? (body.storageId as Id<"_storage">) : undefined,
+      storageKey: body.storageKey,
       format: body.format,
       channels: body.channels,
       sampleCount: body.sampleCount,

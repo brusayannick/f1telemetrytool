@@ -22,6 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from . import normalize as nz
+from .blob_store import BlobStore, build_blob_store, telemetry_key
 from .convex_client import ConvexIngestClient, IngestError
 from .fastf1_source import init_cache, load_session
 
@@ -30,6 +31,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 def ingest_one(
     client: ConvexIngestClient,
+    store: BlobStore,
     year: int,
     gp: str | int,
     identifier: str | int,
@@ -90,11 +92,19 @@ def ingest_one(
                     payload = nz.telemetry_payload(session, driver_number)
                     if payload is not None:
                         data, info = payload
-                        storage_id = client.upload_telemetry(data)
+                        reference = store.put(
+                            telemetry_key(
+                                meta["year"],
+                                meta["event"]["round"],
+                                meta["session"]["name"],
+                                driver_number,
+                            ),
+                            data,
+                        )
                         client.attach_telemetry(
                             session_id,
                             driver_number,
-                            storage_id,
+                            reference,
                             format=info["format"],
                             channels=info["channels"],
                             sample_count=info["sampleCount"],
@@ -135,6 +145,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     client = ConvexIngestClient()
     ingest_one(
         client,
+        build_blob_store(client),
         args.year,
         args.gp,
         args.session,
@@ -153,6 +164,7 @@ def cmd_by_session(args: argparse.Namespace) -> int:
         return 1
     ingest_one(
         client,
+        build_blob_store(client),
         int(bundle["year"]),
         int(bundle["event"]["round"]),
         str(bundle["session"]["name"]),
@@ -164,6 +176,7 @@ def cmd_by_session(args: argparse.Namespace) -> int:
 def cmd_run_due(args: argparse.Namespace) -> int:
     init_cache(args.cache)
     client = ConvexIngestClient()
+    store = build_blob_store(client)
     due = client.query("schedule:dueSessions", {})
     if not due:
         print("no due sessions")
@@ -179,6 +192,7 @@ def cmd_run_due(args: argparse.Namespace) -> int:
         try:
             ingest_one(
                 client,
+                store,
                 int(entry["year"]),
                 int(entry["round"]),
                 str(entry["sessionName"]),
@@ -214,6 +228,7 @@ def cmd_backfill(args: argparse.Namespace) -> int:
 
     cache_dir = init_cache(args.cache)
     client = ConvexIngestClient()
+    store = build_blob_store(client)
 
     years = list(range(args.from_year, args.to_year + 1))
     if args.newest_first:
@@ -256,6 +271,7 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                 try:
                     ingest_one(
                         client,
+                        store,
                         year,
                         round_number,
                         session_name,
@@ -281,6 +297,7 @@ def cmd_weekend(args: argparse.Namespace) -> int:
 
     init_cache(args.cache)
     client = ConvexIngestClient()
+    store = build_blob_store(client)
 
     event = fastf1.get_event(args.year, args.gp)
     round_number = int(event["RoundNumber"])
@@ -299,6 +316,7 @@ def cmd_weekend(args: argparse.Namespace) -> int:
         try:
             ingest_one(
                 client,
+                store,
                 args.year,
                 round_number,
                 session_name,

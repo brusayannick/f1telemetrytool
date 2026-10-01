@@ -9,12 +9,22 @@ export const listTelemetryFiles = query({
       .withIndex("by_session", (q) => q.eq("sessionId", sessionId))
       .collect();
 
+    // Public read base URL for the R2 bucket ("https://pub-….r2.dev" or a custom
+    // domain). Not a secret, so it is read straight from the deployment env.
+    const base = (process.env.R2_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+
     const out = [];
     for (const file of files) {
-      const url = await ctx.storage.getUrl(file.storageId);
+      let url: string | null = null;
+      if (file.storageKey && base) {
+        url = `${base}/${file.storageKey}`;
+      } else if (file.storageId) {
+        url = await ctx.storage.getUrl(file.storageId);
+      }
       out.push({
         driverNumber: file.driverNumber,
         url,
+        provider: file.provider ?? "convex",
         format: file.format,
         channels: file.channels,
         sampleCount: file.sampleCount,

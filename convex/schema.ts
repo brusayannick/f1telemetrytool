@@ -121,7 +121,10 @@ export default defineSchema({
   telemetryFiles: defineTable({
     sessionId: v.id("sessions"),
     driverNumber: v.string(),
-    storageId: v.id("_storage"),
+    // "r2" = object storage key, "convex" = file storage id; absent = legacy convex
+    provider: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    storageKey: v.optional(v.string()),
     format: v.string(),
     channels: v.array(v.string()),
     sampleCount: v.number(),

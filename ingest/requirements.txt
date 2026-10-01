@@ -2,3 +2,4 @@ fastf1>=3.8,<4
 requests>=2.31
 msgpack>=1.0
 python-dotenv>=1.0
+boto3>=1.34

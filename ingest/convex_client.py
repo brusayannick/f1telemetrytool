@@ -148,7 +148,7 @@ class ConvexIngestClient:
         self,
         session_id: str,
         driver_number: str,
-        storage_id: str,
+        reference: Any,
         *,
         format: str,
         channels: list[str],
@@ -159,12 +159,18 @@ class ConvexIngestClient:
         payload: dict[str, Any] = {
             "sessionId": session_id,
             "driverNumber": driver_number,
-            "storageId": storage_id,
+            "provider": getattr(reference, "provider", "convex"),
             "format": format,
             "channels": channels,
             "sampleCount": sample_count,
             "bytes": bytes,
         }
+        storage_id = getattr(reference, "storage_id", None)
+        storage_key = getattr(reference, "storage_key", None)
+        if storage_id is not None:
+            payload["storageId"] = storage_id
+        if storage_key is not None:
+            payload["storageKey"] = storage_key
         if freq_hz is not None:
             payload["freqHz"] = freq_hz
         return self._post("attachTelemetry", payload)

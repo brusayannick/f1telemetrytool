@@ -311,7 +311,9 @@ export const attachTelemetryFile = internalMutation({
   args: {
     sessionId: v.id("sessions"),
     driverNumber: v.string(),
-    storageId: v.id("_storage"),
+    provider: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    storageKey: v.optional(v.string()),
     format: v.string(),
     channels: v.array(v.string()),
     sampleCount: v.number(),
@@ -325,21 +327,33 @@ export const attachTelemetryFile = internalMutation({
         q.eq("sessionId", args.sessionId).eq("driverNumber", args.driverNumber),
       )
       .first();
+
+    // Default to Convex storage so a worker mid-run with the previous payload shape
+    // (no provider field) keeps working across this deploy.
+    const provider = args.provider ?? "convex";
+
+    const doc = pruneUndefined({
+      sessionId: args.sessionId,
+      driverNumber: args.driverNumber,
+      provider,
+      storageId: args.storageId,
+      storageKey: args.storageKey,
+      format: args.format,
+      channels: args.channels,
+      sampleCount: args.sampleCount,
+      bytes: args.bytes,
+      freqHz: args.freqHz,
+    });
+
     if (existing) {
-      await ctx.storage.delete(existing.storageId);
-      await ctx.db.patch(
-        existing._id,
-        pruneUndefined({
-          storageId: args.storageId,
-          format: args.format,
-          channels: args.channels,
-          sampleCount: args.sampleCount,
-          bytes: args.bytes,
-          freqHz: args.freqHz,
-        }),
-      );
+      // Release the previous Convex-stored object; R2 objects are overwritten by key.
+      if (existing.storageId) {
+        await ctx.storage.delete(existing.storageId);
+      }
+      // replace() (not patch) so switching provider cannot leave a stale field behind
+      await ctx.db.replace(existing._id, doc);
       return existing._id;
     }
-    return await ctx.db.insert("telemetryFiles", pruneUndefined({ ...args }));
+    return await ctx.db.insert("telemetryFiles", doc);
   },
 });
