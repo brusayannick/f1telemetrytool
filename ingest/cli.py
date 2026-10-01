@@ -15,6 +15,7 @@ import argparse
 import contextlib
 import shutil
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -328,6 +329,82 @@ def cmd_weekend(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_calendar(args: argparse.Namespace) -> int:
+    """Sync season/event/session rows for a year range — no telemetry, no session loads.
+
+    Makes the whole history browsable so sessions can be requested on demand.
+    """
+    import fastf1
+
+    init_cache(args.cache)
+    client = ConvexIngestClient()
+
+    written = 0
+    for year in range(args.from_year, args.to_year + 1):
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        season_id = client.upsert_season(year)
+        for _, event in schedule.iterrows():
+            payloads = nz.calendar_payloads(event)
+            if payloads is None:
+                continue
+            event_payload, sessions = payloads
+            if event_payload["round"] == 0:
+                continue
+            event_id = client.upsert_event(season_id, event_payload)
+            for session in sessions:
+                client.upsert_session(event_id, session)
+                written += 1
+        print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {year}: calendar synced")
+
+    print(f"calendar synced: {written} sessions")
+    return 0
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Poll Convex for telemetry requests from the web UI and ingest them.
+
+    This is the bridge between a click in the browser and the F1 feed: the browser can
+    only write a request flag, while the fetch has to happen from a residential IP.
+    """
+    init_cache(args.cache)
+    client = ConvexIngestClient()
+    store = build_blob_store(client)
+
+    print(
+        f"[{datetime.now():%Y-%m-%d %H:%M:%S}] watching for requests every "
+        f"{args.interval:.0f}s (Ctrl-C to stop)"
+    )
+    while True:
+        try:
+            requested = client.query("sessions:requestedSessions", {})
+        except IngestError as err:
+            print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] poll failed: {err}", file=sys.stderr)
+            requested = []
+
+        for entry in requested:
+            if entry.get("year") is None:
+                continue
+            print(
+                f"[{datetime.now():%Y-%m-%d %H:%M:%S}] request: {entry['year']} "
+                f"r{entry['round']} {entry['eventName']} – {entry['sessionName']}"
+            )
+            try:
+                ingest_one(
+                    client,
+                    store,
+                    int(entry["year"]),
+                    int(entry["round"]),
+                    str(entry["sessionName"]),
+                )
+            except Exception as err:  # noqa: BLE001 - keep watching
+                print(
+                    f"[{datetime.now():%Y-%m-%d %H:%M:%S}]   failed: {err}",
+                    file=sys.stderr,
+                )
+
+        time.sleep(args.interval)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ingest", description=__doc__)
     parser.add_argument(
@@ -392,6 +469,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="Re-ingest sessions already marked complete"
     )
     p_weekend.set_defaults(func=cmd_weekend)
+
+    p_calendar = subparsers.add_parser(
+        "calendar", help="Sync season/event/session rows for a year range (no telemetry)"
+    )
+    p_calendar.add_argument("--from-year", type=int, required=True)
+    p_calendar.add_argument("--to-year", type=int, required=True)
+    p_calendar.set_defaults(func=cmd_calendar)
+
+    p_watch = subparsers.add_parser(
+        "watch", help="Serve on-demand telemetry requests from the web UI"
+    )
+    p_watch.add_argument(
+        "--interval",
+        type=float,
+        default=15.0,
+        help="Seconds between polls (default: 15)",
+    )
+    p_watch.set_defaults(func=cmd_watch)
 
     return parser
 

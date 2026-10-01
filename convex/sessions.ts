@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const listSeasons = query({
@@ -162,6 +162,59 @@ export const listResults = query({
       return pa - pb;
     });
 
+    return out;
+  },
+});
+
+/**
+ * Mark a session for on-demand ingestion. The local worker polls
+ * `requestedSessions` and fetches the telemetry from a residential IP, which is the
+ * only place the F1 feed is reachable.
+ */
+export const requestIngest = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, { sessionId }) => {
+    const session = await ctx.db.get(sessionId);
+    if (!session) {
+      throw new Error("session not found");
+    }
+    if (
+      session.ingestStatus === "complete" ||
+      session.ingestStatus === "ingesting" ||
+      session.ingestStatus === "requested"
+    ) {
+      return session.ingestStatus;
+    }
+    await ctx.db.patch(sessionId, {
+      ingestStatus: "requested",
+      lastError: undefined,
+    });
+    return "requested";
+  },
+});
+
+/** Sessions waiting for the local worker, with the keys FastF1 needs. */
+export const requestedSessions = query({
+  args: {},
+  handler: async (ctx) => {
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_status_end", (q) => q.eq("ingestStatus", "requested"))
+      .collect();
+
+    const out = [];
+    for (const session of sessions) {
+      const event = await ctx.db.get(session.eventId);
+      if (!event) continue;
+      const season = await ctx.db.get(event.seasonId);
+      out.push({
+        sessionId: session._id,
+        year: season?.year ?? null,
+        round: event.round,
+        eventName: event.name,
+        sessionName: session.name,
+      });
+    }
     return out;
   },
 });

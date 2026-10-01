@@ -203,6 +203,62 @@ def session_meta(session) -> dict[str, Any]:
     }
 
 
+def calendar_payloads(event: Any) -> tuple[dict[str, Any], list[dict[str, Any]]] | None:
+    """Build event + session rows from an event-schedule row, touching no telemetry.
+
+    This is what makes every session browsable *before* anything is ingested: the
+    schedule already carries the session names and their UTC start times, so a whole
+    season of calendar rows costs a handful of kilobytes.
+    """
+    round_number = int(_event_field(event, "RoundNumber") or 0)
+
+    session_dates: list[int] = []
+    sessions: list[dict[str, Any]] = []
+    for index in range(1, 6):
+        name = _event_field(event, f"Session{index}")
+        if not isinstance(name, str) or not name:
+            continue
+        scheduled = _event_field(event, f"Session{index}DateUtc")
+        if scheduled is None:
+            continue
+        start_ms = int(pd.Timestamp(scheduled).timestamp() * 1000)
+        session_type = _session_type(name)
+        session_dates.append(start_ms)
+        sessions.append(
+            {
+                "name": name,
+                "type": session_type,
+                "startTime": start_ms,
+                # provisional: refined from the actual session data on ingest
+                "endTime": start_ms
+                + (2 * 3_600_000 if session_type == "Race" else 3_600_000),
+            }
+        )
+
+    if not session_dates and _event_field(event, "EventDate") is None:
+        return None
+
+    fallback = (
+        int(pd.Timestamp(_event_field(event, "EventDate")).timestamp() * 1000)
+        if session_dates == []
+        else session_dates[0]
+    )
+
+    event_payload = {
+        "round": round_number,
+        "name": str(_event_field(event, "EventName", "Name") or ""),
+        "officialName": _opt_str(
+            _event_field(event, "OfficialEventName", "OfficialName")
+        ),
+        "country": str(_event_field(event, "Country") or ""),
+        "location": _opt_str(_event_field(event, "Location")),
+        "startDate": min(session_dates) if session_dates else fallback,
+        "endDate": (max(session_dates) + 3_600_000) if session_dates else fallback,
+        "format": _opt_str(_event_field(event, "EventFormat", "Format")),
+    }
+    return event_payload, sessions
+
+
 def expects_timing(session) -> bool:
     """Whether the F1 timing feed should provide data for this session.
 

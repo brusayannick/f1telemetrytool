@@ -149,14 +149,14 @@ export const upsertSession = internalMutation({
       )
       .first();
     if (existing) {
-      await ctx.db.patch(
-        existing._id,
-        pruneUndefined({
-          type: args.type,
-          startTime: args.startTime,
-          endTime: args.endTime,
-        }),
-      );
+      // A completed session's window came from the real session data and is more
+      // accurate than the schedule's provisional times, so a calendar re-sync must
+      // not clobber it.
+      const keepTimes = existing.ingestStatus === "complete";
+      await ctx.db.patch(existing._id, {
+        ...(args.type ? { type: args.type } : {}),
+        ...(keepTimes ? {} : { startTime: args.startTime, endTime: args.endTime }),
+      });
       return existing._id;
     }
     return await ctx.db.insert("sessions", {

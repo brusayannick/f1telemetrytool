@@ -3,6 +3,8 @@ import { v } from "convex/values";
 
 const ingestStatus = v.union(
   v.literal("pending"),
+  // asked for by a user in the web UI, waiting for the local worker to pick it up
+  v.literal("requested"),
   v.literal("dispatched"),
   v.literal("ingesting"),
   v.literal("complete"),
