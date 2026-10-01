@@ -31,8 +31,7 @@ type TelemetryPayload = {
   channels: Record<string, Uint8Array>;
 };
 
-/** Download and decode one driver-session telemetry file (gzip + msgpack, float32le). */
-export async function loadTelemetry(url: string): Promise<Telemetry> {
+async function fetchTelemetry(url: string): Promise<Telemetry> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch telemetry (${response.status})`);
@@ -54,6 +53,38 @@ export async function loadTelemetry(url: string): Promise<Telemetry> {
   }
 
   return { n: packed.n, t0ms: packed.t0ms ?? 0, channels };
+}
+
+/**
+ * Telemetry payloads are immutable — one URL always describes the same session and
+ * driver — so decoded files are held in memory for the session. Without this, changing
+ * driver or lap re-downloads and re-decodes the same megabytes of samples, and the
+ * compare view needs two files per change.
+ *
+ * Failures are evicted, otherwise a transient error would be cached forever.
+ */
+const telemetryCache = new Map<string, Promise<Telemetry>>();
+const TELEMETRY_CACHE_LIMIT = 8;
+
+export function loadTelemetry(url: string): Promise<Telemetry> {
+  const cached = telemetryCache.get(url);
+  if (cached) return cached;
+
+  const pending = fetchTelemetry(url).catch((error: unknown) => {
+    telemetryCache.delete(url);
+    throw error;
+  });
+
+  telemetryCache.set(url, pending);
+
+  // Insertion-order eviction; a true LRU buys nothing at this size.
+  while (telemetryCache.size > TELEMETRY_CACHE_LIMIT) {
+    const oldest = telemetryCache.keys().next().value;
+    if (oldest === undefined) break;
+    telemetryCache.delete(oldest);
+  }
+
+  return pending;
 }
 
 function lowerBound(values: Float32Array, target: number): number {

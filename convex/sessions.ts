@@ -169,6 +169,15 @@ export const listResults = query({
 });
 
 /**
+ * How many sessions may sit in the queue at once.
+ *
+ * The fetching happens on the owner's machine, so an unbounded queue is an unbounded
+ * amount of work (and F1 API quota) triggered from a web page. This bounds the blast
+ * radius without pretending to authenticate anyone.
+ */
+const MAX_PENDING_REQUESTS = 5;
+
+/**
  * Mark a session for on-demand ingestion. The local worker polls
  * `requestedSessions` and fetches the telemetry from a residential IP, which is the
  * only place the F1 feed is reachable.
@@ -187,6 +196,17 @@ export const requestIngest = mutation({
     ) {
       return session.ingestStatus;
     }
+
+    const queued = await ctx.db
+      .query("sessions")
+      .withIndex("by_status_end", (q) => q.eq("ingestStatus", "requested"))
+      .collect();
+    if (queued.length >= MAX_PENDING_REQUESTS) {
+      throw new Error(
+        `Already ${queued.length} sessions queued — let the worker catch up first.`,
+      );
+    }
+
     await ctx.db.patch(sessionId, {
       ingestStatus: "requested",
       lastError: undefined,
