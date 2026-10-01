@@ -25,3 +25,16 @@ export const listTelemetryFiles = query({
     return out;
   },
 });
+
+/** Total telemetry storage in use — used by the ingest worker's backfill guard. */
+export const storageUsage = query({
+  args: {},
+  handler: async (ctx) => {
+    const files = await ctx.db.query("telemetryFiles").collect();
+    let bytes = 0;
+    for (const file of files) {
+      bytes += file.bytes;
+    }
+    return { files: files.length, bytes };
+  },
+});

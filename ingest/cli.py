@@ -12,8 +12,11 @@ Usage examples (run from the repository root):
 from __future__ import annotations
 
 import argparse
+import contextlib
+import shutil
 import sys
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -188,14 +191,39 @@ def cmd_run_due(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def _prune_cache(cache_dir: str) -> None:
+    """Clear the FastF1 cache.
+
+    A season of cached session data is several gigabytes, so a long backfill would
+    exhaust the disk. The data is already in Convex by this point; keeping the cache
+    only ever saved re-downloads.
+    """
+    root = Path(cache_dir)
+    if not root.exists():
+        return
+    for entry in root.iterdir():
+        if entry.is_dir():
+            shutil.rmtree(entry, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                entry.unlink()
+
+
 def cmd_backfill(args: argparse.Namespace) -> int:
     import fastf1
 
-    init_cache(args.cache)
+    cache_dir = init_cache(args.cache)
     client = ConvexIngestClient()
 
+    years = list(range(args.from_year, args.to_year + 1))
+    if args.newest_first:
+        years.reverse()
+
+    max_bytes = None if args.max_mb is None else int(args.max_mb * 1024 * 1024)
+
     failures = 0
-    for year in range(args.from_year, args.to_year + 1):
+    ingested = 0
+    for year in years:
         schedule = fastf1.get_event_schedule(year, include_testing=False)
         for _, event in schedule.iterrows():
             round_number = int(event["RoundNumber"])
@@ -208,7 +236,23 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                 status = client.status_for(year, round_number, session_name)
                 if status and status.get("ingestStatus") == "complete":
                     continue
-                print(f"[{year} r{round_number}] {session_name}")
+                if max_bytes is not None:
+                    usage = client.storage_usage()
+                    if usage["bytes"] >= max_bytes:
+                        print(
+                            f"[{datetime.now():%Y-%m-%d %H:%M:%S}] storage guard: "
+                            f"{usage['bytes'] / 1024 / 1024:.0f} MiB in {usage['files']} "
+                            f"files >= {args.max_mb:.0f} MB — pausing"
+                        )
+                        print(f"backfill paused: {ingested} ingested, {failures} failed")
+                        return 0
+                if args.limit is not None and ingested >= args.limit:
+                    print(f"limit reached ({ingested} sessions)")
+                    return 1 if failures else 0
+                print(
+                    f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
+                    f"{year} r{round_number} {session_name}"
+                )
                 try:
                     ingest_one(
                         client,
@@ -217,9 +261,17 @@ def cmd_backfill(args: argparse.Namespace) -> int:
                         session_name,
                         telemetry=not args.no_telemetry,
                     )
+                    ingested += 1
                 except Exception as err:  # noqa: BLE001
                     failures += 1
-                    print(f"  failed: {err}", file=sys.stderr)
+                    print(
+                        f"[{datetime.now():%Y-%m-%d %H:%M:%S}]   failed: {err}",
+                        file=sys.stderr,
+                    )
+                finally:
+                    if args.prune_cache:
+                        _prune_cache(cache_dir)
+    print(f"backfill finished: {ingested} ingested, {failures} failed")
     return 1 if failures else 0
 
 
@@ -288,6 +340,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_backfill.add_argument("--from-year", type=int, required=True)
     p_backfill.add_argument("--to-year", type=int, required=True)
     p_backfill.add_argument("--no-telemetry", action="store_true")
+    p_backfill.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Stop after N sessions (useful for smoke tests)",
+    )
+    p_backfill.add_argument(
+        "--newest-first",
+        action="store_true",
+        help="Iterate seasons newest first (most relevant data lands first)",
+    )
+    p_backfill.add_argument(
+        "--max-mb",
+        type=float,
+        default=None,
+        help="Pause once Convex telemetry storage exceeds this many MiB",
+    )
+    p_backfill.add_argument(
+        "--prune-cache",
+        action="store_true",
+        help="Clear the FastF1 cache after each session (bounds disk usage)",
+    )
     p_backfill.set_defaults(func=cmd_backfill)
 
     p_weekend = subparsers.add_parser(

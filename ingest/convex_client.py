@@ -173,3 +173,7 @@ class ConvexIngestClient:
         return self.query(
             "sessions:statusFor", {"year": year, "round": round_number, "name": name}
         )
+
+    def storage_usage(self) -> dict[str, Any]:
+        """Convex telemetry storage footprint (files + bytes)."""
+        return self.query("telemetry:storageUsage", {})
