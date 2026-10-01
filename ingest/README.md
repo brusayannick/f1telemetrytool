@@ -25,6 +25,7 @@ Fill in `ingest/.env`:
 
 ```bash
 python -m ingest.cli ingest --year 2025 --gp British --session R   # one session
+python -m ingest.cli weekend --year 2025 --gp British              # whole weekend
 python -m ingest.cli by-session --session-key <convex id>          # used by CI
 python -m ingest.cli run-due                                       # due sessions
 python -m ingest.cli backfill --from-year 2018 --to-year 2025      # history

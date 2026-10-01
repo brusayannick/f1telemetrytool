@@ -65,6 +65,18 @@ export const markDispatched = internalMutation({
 export const dispatchDueSessions = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Ingestion currently runs manually from a residential IP: the F1 livetiming
+    // feed blocks cloud/datacenter ranges (GitHub-hosted runners included), so a
+    // dispatched workflow could only ever store an empty session. Re-enable with
+    // `npx convex env set GH_DISPATCH_ENABLED 1` once a self-hosted runner exists.
+    if (process.env.GH_DISPATCH_ENABLED !== "1") {
+      return {
+        dispatched: 0,
+        skipped:
+          "dispatch disabled — ingest runs manually; set GH_DISPATCH_ENABLED=1 to enable",
+      };
+    }
+
     const token = process.env.GH_DISPATCH_TOKEN;
     const repo = process.env.GH_REPO;
     if (!token || !repo) {

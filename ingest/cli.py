@@ -3,6 +3,7 @@
 Usage examples (run from the repository root):
 
     python -m ingest.cli ingest --year 2025 --gp British --session R
+    python -m ingest.cli weekend --year 2025 --gp British
     python -m ingest.cli by-session --session-key <convex session id>
     python -m ingest.cli run-due
     python -m ingest.cli backfill --from-year 2018 --to-year 2025
@@ -222,6 +223,41 @@ def cmd_backfill(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_weekend(args: argparse.Namespace) -> int:
+    """Ingest every session of one event, skipping sessions already complete."""
+    import fastf1
+
+    init_cache(args.cache)
+    client = ConvexIngestClient()
+
+    event = fastf1.get_event(args.year, args.gp)
+    round_number = int(event["RoundNumber"])
+    print(f"weekend: {args.year} round {round_number} ({event['EventName']})")
+
+    failures = 0
+    for index in range(1, 6):
+        session_name = event.get(f"Session{index}")
+        if not isinstance(session_name, str) or not session_name:
+            continue
+        status = client.status_for(args.year, round_number, session_name)
+        if status and status.get("ingestStatus") == "complete":
+            print(f"skip (already complete): {session_name}")
+            continue
+        print(f"ingesting: {session_name}")
+        try:
+            ingest_one(
+                client,
+                args.year,
+                round_number,
+                session_name,
+                telemetry=not args.no_telemetry,
+            )
+        except Exception as err:  # noqa: BLE001 - continue with other sessions
+            failures += 1
+            print(f"  failed: {err}", file=sys.stderr)
+    return 1 if failures else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ingest", description=__doc__)
     parser.add_argument(
@@ -253,6 +289,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_backfill.add_argument("--to-year", type=int, required=True)
     p_backfill.add_argument("--no-telemetry", action="store_true")
     p_backfill.set_defaults(func=cmd_backfill)
+
+    p_weekend = subparsers.add_parser(
+        "weekend", help="Ingest every session of one event (skips completed)"
+    )
+    p_weekend.add_argument("--year", type=int, required=True)
+    p_weekend.add_argument("--gp", required=True, help="Event name or round number")
+    p_weekend.add_argument("--no-telemetry", action="store_true")
+    p_weekend.set_defaults(func=cmd_weekend)
 
     return parser
 

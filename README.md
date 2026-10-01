@@ -62,9 +62,18 @@ The Convex deployment URL and HTTP-actions URL are printed by `npx convex dev`
 | Command | Purpose |
 | --- | --- |
 | `python -m ingest.cli ingest --year 2025 --gp British --session R` | Ingest one session (idempotent) |
+| `python -m ingest.cli weekend --year 2025 --gp British` | Ingest every session of one event, skipping completed ones |
 | `python -m ingest.cli by-session --session-key <convex id>` | Ingest the session a workflow was dispatched for |
-| `python -m ingest.cli run-due` | Ingest all sessions that are due (used by the 30-min fallback cron) |
+| `python -m ingest.cli run-due` | Ingest all sessions that are due (also runnable from a scheduler) |
 | `python -m ingest.cli backfill --from-year 2018 --to-year 2025` | Historical backfill with checkpointing via Convex status checks |
+
+> **Ingest runs from this machine, not from CI.** The F1 livetiming feed blocks
+> cloud/datacenter IP ranges, so a GitHub-hosted runner receives *empty* session data
+> (results come from a different host and still succeed, which made the failure easy to
+> miss). The worker now refuses to mark such a session complete and marks it `failed`
+> with an explanatory `lastError` instead, and the Convex cron's dispatch is gated behind
+> `GH_DISPATCH_ENABLED` so nothing tries the blocked path. After each race weekend, run
+> `weekend --year <year> --gp <event>` locally.
 
 Add `--no-telemetry` to ingest timing data only, or `--dry-run` to preview metadata.
 
