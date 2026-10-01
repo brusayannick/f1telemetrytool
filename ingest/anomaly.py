@@ -41,6 +41,15 @@ SEGMENTS = 10
 #: Minimum laps a driver needs before a personal baseline means anything.
 MIN_LAPS = 5
 
+#: Minimum representative laps before a *score* is trustworthy.
+#:
+#: Five to eight laps — a qualifying run — cannot support outlier detection: the natural
+#: lap-to-lap spread is already wider than the differences being flagged, and median/MAD
+#: estimated from so few laps saturates. Measured on 2025 Abu Dhabi qualifying, car 22's
+#: "anomalous" lap 8 differed by +20/-16 km/h in two segments while its other laps spread
+#: 11 km/h between themselves. Races give 40-60 laps per driver and a real baseline.
+MIN_BASELINE_LAPS = 15
+
 #: Laps slower than this multiple of the driver's best are not driving anomalies but
 #: unrepresentative laps (preparation, a spin, an aborted run). They are reported
 #: separately and kept out of the baseline, where they would otherwise inflate it.
@@ -180,10 +189,16 @@ def analyse_session(
     session_id: str,
     *,
     top_features: int = 3,
-) -> list[dict[str, Any]]:
-    """Score every clean lap in a session against its driver's own baseline."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Score every clean lap in a session against its driver's own baseline.
+
+    Returns the findings, plus the drivers skipped for want of a usable baseline. The
+    latter matters: an inadequate baseline is the main reason a score cannot be trusted,
+    and silently emitting flags anyway is how a detector earns false confidence.
+    """
     files = client.query("telemetry:listTelemetryFiles", {"sessionId": session_id})
     findings: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
 
     for entry in files:
         driver = entry["driverNumber"]
@@ -222,7 +237,14 @@ def analyse_session(
         representative = [(n, f) for n, f in comparable if f["lap_time_ms"] <= cutoff]
         unrepresentative = [(n, f) for n, f in comparable if f["lap_time_ms"] > cutoff]
 
-        if len(representative) < MIN_LAPS:
+        if len(representative) < MIN_BASELINE_LAPS:
+            skipped.append(
+                {
+                    "driver": driver,
+                    "representativeLaps": len(representative),
+                    "totalLaps": len(rows),
+                }
+            )
             continue
 
         names = sorted(representative[0][1])
@@ -288,7 +310,7 @@ def analyse_session(
             )
 
     findings.sort(key=lambda item: -item["score"])
-    return findings
+    return findings, skipped
 
 
 def speed_profile(
@@ -421,13 +443,25 @@ def main(argv: list[str] | None = None) -> int:
         return report_alignment(client, args.session_id)
 
     try:
-        findings = analyse_session(client, args.session_id)
+        findings, skipped = analyse_session(client, args.session_id)
     except IngestError as err:
         print(f"anomaly: {err}", file=sys.stderr)
         return 2
 
+    if skipped:
+        details = ", ".join(
+            f"car {item['driver']} ({item['representativeLaps']})" for item in skipped
+        )
+        print(
+            f"excluded {len(skipped)} drivers with fewer than {MIN_BASELINE_LAPS} usable "
+            f"laps — too short a baseline to score against: {details}\n"
+        )
+
     if not findings:
-        print("no scorable laps (need laps with telemetry, green track, no pit stops)")
+        print(
+            "no scorable laps — this needs a long session (a race, or a heavily "
+            "interrupted practice) so every driver has a real baseline"
+        )
         return 0
 
     outliers = [item for item in findings if item["category"] == "outlier"]
