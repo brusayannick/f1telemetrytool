@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { EventSessions } from "@/components/event-sessions";
+import { Skeleton, SkeletonPills } from "@/components/skeleton";
 
 export default function SeasonPage() {
   const params = useParams<{ year: string }>();
@@ -30,7 +31,15 @@ export default function SeasonPage() {
       </h1>
 
       {data === undefined ? (
-        <p className="mt-10 text-sm text-muted">Loading…</p>
+        <div aria-busy className="mt-10 space-y-8">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="rounded-card border border-line bg-paper p-6">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="mt-3 h-7 w-56" />
+              <SkeletonPills className="mt-4" count={5} width="w-32" />
+            </div>
+          ))}
+        </div>
       ) : data.events.length === 0 ? (
         <p className="mt-10 text-sm text-muted">
           No events stored for this season yet.

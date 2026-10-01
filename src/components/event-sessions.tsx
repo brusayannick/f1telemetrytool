@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { SkeletonPills } from "@/components/skeleton";
 
 const statusStyles: Record<string, string> = {
   complete: "bg-accent-100 text-accent-800",
@@ -19,7 +20,7 @@ export function EventSessions({ eventId }: { eventId: Id<"events"> }) {
   const sessions = useQuery(api.sessions.listSessions, { eventId });
 
   if (sessions === undefined) {
-    return <p className="py-3 text-sm text-muted">Loading sessions…</p>;
+    return <SkeletonPills className="mt-3" count={5} width="w-32" />;
   }
 
   if (sessions.length === 0) {

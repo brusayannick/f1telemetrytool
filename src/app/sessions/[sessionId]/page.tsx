@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { TelemetryChart, type ChartLap } from "@/components/telemetry-chart";
+import { Skeleton, SkeletonChart, SkeletonPills, SkeletonTable } from "@/components/skeleton";
 import { formatLapTime } from "@/lib/telemetry";
 
 const statusStyles: Record<string, string> = {
@@ -110,12 +111,25 @@ export default function SessionPage() {
       </Link>
 
       <header className="mt-4">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-          {bundle?.year ?? ""} · Round {bundle ? Math.round(bundle.event?.round ?? 0) : ""}
-        </p>
-        <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">
-          {bundle?.session.name ?? "Session"}
-        </h1>
+        {bundle === undefined ? (
+          <>
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="mt-3 h-10 w-64" />
+          </>
+        ) : bundle === null ? (
+          <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">
+            Session not found
+          </h1>
+        ) : (
+          <>
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
+              {bundle.year ?? ""} · Round {Math.round(bundle.event?.round ?? 0)}
+            </p>
+            <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">
+              {bundle.session.name}
+            </h1>
+          </>
+        )}
         {bundle && (
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <span
@@ -219,7 +233,7 @@ export default function SessionPage() {
             );
           })}
           {results === undefined && (
-            <p className="py-2 text-sm text-muted">Loading drivers…</p>
+            <SkeletonPills className="py-1" count={10} width="w-24" />
           )}
         </div>
       </section>
@@ -259,23 +273,23 @@ export default function SessionPage() {
             );
           })}
           {laps === undefined && activeDriver && (
-            <p className="py-2 text-sm text-muted">Loading laps…</p>
+            <SkeletonPills className="py-1" count={12} width="w-20" />
           )}
         </div>
       </section>
 
       <section className="mt-10 rounded-card border border-line bg-paper p-4">
-        {activeTelemetry?.url ? (
+        {telemetryFiles === undefined ? (
+          <SkeletonChart />
+        ) : activeTelemetry?.url ? (
           <TelemetryChart url={activeTelemetry.url} lap={selectedLap} />
         ) : (
           <p className="py-6 text-sm text-muted">
-            {telemetryFiles === undefined
-              ? "Loading telemetry…"
-              : loaded
-                ? bundle?.session.telemetryAvailability === "none"
-                  ? "The F1 feed has no car telemetry for this session."
-                  : "No telemetry stored for this driver."
-                : "Telemetry for this session hasn’t been fetched yet — use “Load telemetry” above."}
+            {loaded
+              ? bundle?.session.telemetryAvailability === "none"
+                ? "The F1 feed has no car telemetry for this session."
+                : "No telemetry stored for this driver."
+              : "Telemetry for this session hasn’t been fetched yet — use “Load telemetry” above."}
           </p>
         )}
         <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-muted">
@@ -287,6 +301,7 @@ export default function SessionPage() {
         <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
           Classification
         </h2>
+        {results === undefined && <SkeletonTable rows={6} className="mt-4" />}
         <table className="mt-4 w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-widest text-muted">

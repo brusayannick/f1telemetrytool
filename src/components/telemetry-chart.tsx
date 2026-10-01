@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { lapRange, loadTelemetry, type Telemetry } from "@/lib/telemetry";
+import { SkeletonChart } from "@/components/skeleton";
 
 const HEIGHT = 260;
 
@@ -162,7 +163,7 @@ export function TelemetryChart({ url, lap }: Props) {
   }
 
   if (!data) {
-    return <p className="py-6 text-sm text-muted">Loading telemetry…</p>;
+    return <SkeletonChart height={HEIGHT} />;
   }
 
   return <div ref={containerRef} className="w-full" />;

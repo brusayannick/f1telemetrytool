@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { Skeleton } from "@/components/skeleton";
 
 export default function SeasonsPage() {
   const seasons = useQuery(api.sessions.listSeasons);
@@ -17,7 +18,14 @@ export default function SeasonsPage() {
       </h1>
 
       {seasons === undefined ? (
-        <p className="mt-10 text-sm text-muted">Loading…</p>
+        <div aria-busy className="mt-10 divide-y divide-line border-y border-line">
+          {Array.from({ length: 5 }, (_, index) => (
+            <div key={index} className="flex items-center justify-between py-5">
+              <Skeleton className="h-7 w-20" />
+              <Skeleton className="h-3.5 w-16" />
+            </div>
+          ))}
+        </div>
       ) : seasons.length === 0 ? (
         <div className="mt-10 rounded-card border border-line bg-paper p-6 text-sm text-muted">
           <p>No data stored yet. Ingest a weekend from this machine:</p>
