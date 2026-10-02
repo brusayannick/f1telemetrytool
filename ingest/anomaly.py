@@ -50,6 +50,45 @@ MIN_LAPS = 5
 #: 11 km/h between themselves. Races give 40-60 laps per driver and a real baseline.
 MIN_BASELINE_LAPS = 15
 
+#: Neighbours on each side, within the same stint, that form a lap's local baseline.
+LOCAL_WINDOW = 3
+
+#: Fewest neighbours a lap needs before it is judged at all.
+MIN_NEIGHBOURS = 4
+
+
+def local_residuals(
+    rows: list[tuple[int, dict[str, float], Any]], names: list[str]
+) -> list[tuple[int, dict[str, float], dict[str, float] | None, int]]:
+    """Residual of each feature against the lap's neighbours in the same stint.
+
+    Neighbouring laps share tyre age, fuel load and track state, so a deviation from them
+    is far more likely to be driving than a deviation from the session median — absolute
+    pace drifts by seconds across a stint, which is why flagging against the session as a
+    whole kept surfacing safety-car and traffic laps. A lap with too few neighbours cannot
+    be judged this way and comes back with ``None``.
+    """
+    groups: dict[Any, list[tuple[int, dict[str, float]]]] = {}
+    for lap_number, features, stint in rows:
+        groups.setdefault(stint, []).append((lap_number, features))
+
+    out: list[tuple[int, dict[str, float], dict[str, float] | None, int]] = []
+    for group in groups.values():
+        group.sort(key=lambda item: item[0])
+        for index, (lap_number, features) in enumerate(group):
+            low = max(0, index - LOCAL_WINDOW)
+            high = min(len(group), index + LOCAL_WINDOW + 1)
+            neighbours = [group[i][1] for i in range(low, high) if i != index]
+            if len(neighbours) < MIN_NEIGHBOURS:
+                out.append((lap_number, features, None, len(neighbours)))
+                continue
+            residuals = {
+                name: features[name] - float(np.median([nb[name] for nb in neighbours]))
+                for name in names
+            }
+            out.append((lap_number, features, residuals, len(neighbours)))
+    return out
+
 #: Laps slower than this multiple of the driver's best are not driving anomalies but
 #: unrepresentative laps (preparation, a spin, an aborted run). They are reported
 #: separately and kept out of the baseline, where they would otherwise inflate it.
@@ -212,7 +251,7 @@ def analyse_session(
         t0_ms = float(payload.get("t0ms") or 0)
         channels = channels_of(payload)
 
-        rows: list[tuple[int, dict[str, float]]] = []
+        rows: list[tuple[int, dict[str, float], Any]] = []
         for lap in laps:
             if not usable_lap(lap):
                 continue
@@ -223,19 +262,23 @@ def analyse_session(
             if features is None:
                 continue
             features["lap_time_ms"] = float(lap["lapTimeMs"])
-            rows.append((int(lap["lapNumber"]), features))
+            rows.append((int(lap["lapNumber"]), features, lap.get("stint")))
 
         if len(rows) < MIN_LAPS:
             continue
 
-        best = min(features["lap_time_ms"] for _, features in rows)
+        best = min(features["lap_time_ms"] for _, features, _ in rows)
         cutoff = best * UNREPRESENTATIVE_RATIO
         # three classes: usable baseline laps, laps that are simply not comparable, and
         # laps whose channels are internally contradictory (a data problem, not driving)
-        suspect = [(n, f) for n, f in rows if f["suspect_brake"] > 0]
-        comparable = [(n, f) for n, f in rows if f["suspect_brake"] == 0]
-        representative = [(n, f) for n, f in comparable if f["lap_time_ms"] <= cutoff]
-        unrepresentative = [(n, f) for n, f in comparable if f["lap_time_ms"] > cutoff]
+        suspect = [(n, f, s) for n, f, s in rows if f["suspect_brake"] > 0]
+        comparable = [(n, f, s) for n, f, s in rows if f["suspect_brake"] == 0]
+        representative = [
+            (n, f, s) for n, f, s in comparable if f["lap_time_ms"] <= cutoff
+        ]
+        unrepresentative = [
+            (n, f, s) for n, f, s in comparable if f["lap_time_ms"] > cutoff
+        ]
 
         if len(representative) < MIN_BASELINE_LAPS:
             skipped.append(
@@ -243,26 +286,39 @@ def analyse_session(
                     "driver": driver,
                     "representativeLaps": len(representative),
                     "totalLaps": len(rows),
+                    "reason": "fewer than 15 usable laps",
                 }
             )
             continue
 
         names = sorted(representative[0][1])
-        matrix = np.array(
-            [[features[name] for name in names] for _, features in representative]
+        samples = local_residuals(representative, names)
+        scored = [(n, f, r, k) for n, f, r, k in samples if r is not None]
+
+        if len(scored) < MIN_BASELINE_LAPS:
+            skipped.append(
+                {
+                    "driver": driver,
+                    "representativeLaps": len(scored),
+                    "totalLaps": len(rows),
+                    "reason": "too few laps with enough same-stint neighbours",
+                }
+            )
+            continue
+
+        residual_matrix = np.array(
+            [[residual[name] for name in names] for _, _, residual, _ in scored]
         )
-        z_scores = np.column_stack(
+        scaled = np.column_stack(
             [
-                robust_z(matrix[:, column], feature_floor(names[column]))
-                for column in range(matrix.shape[1])
+                robust_z(residual_matrix[:, column], feature_floor(names[column]))
+                for column in range(residual_matrix.shape[1])
             ]
         )
 
-        for index, (lap_number, features) in enumerate(representative):
-            row = z_scores[index]
-            order = np.argsort(-np.abs(row))
-            # Aggregate the largest deviations, so one wild corner or a
-            # consistently slow lap both register.
+        for index, (lap_number, features, residual, neighbours) in enumerate(scored):
+            row = scaled[index]
+            order = np.argsort(-np.abs(row))[:top_features]
             score = float(np.sqrt(np.mean(np.sort(row**2)[-top_features:])))
             findings.append(
                 {
@@ -271,19 +327,19 @@ def analyse_session(
                     "score": score,
                     "category": "outlier",
                     "lapTimeMs": features["lap_time_ms"],
-                    "baselineLaps": len(representative),
+                    "baselineLaps": neighbours,
                     "topFeatures": [
                         {
                             "name": names[position],
-                            "value": features[names[position]],
+                            "value": residual[names[position]],
                             "z": float(row[position]),
                         }
-                        for position in order[:top_features]
+                        for position in order
                     ],
                 }
             )
 
-        for lap_number, features in unrepresentative:
+        for lap_number, features, _stint in unrepresentative:
             findings.append(
                 {
                     "driver": driver,
@@ -296,7 +352,7 @@ def analyse_session(
                 }
             )
 
-        for lap_number, features in suspect:
+        for lap_number, features, _stint in suspect:
             findings.append(
                 {
                     "driver": driver,
@@ -450,12 +506,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if skipped:
         details = ", ".join(
-            f"car {item['driver']} ({item['representativeLaps']})" for item in skipped
+            f"car {item['driver']} ({item['representativeLaps']}: {item['reason']})"
+            for item in skipped
         )
-        print(
-            f"excluded {len(skipped)} drivers with fewer than {MIN_BASELINE_LAPS} usable "
-            f"laps — too short a baseline to score against: {details}\n"
-        )
+        print(f"excluded {len(skipped)} drivers: {details}\n")
 
     if not findings:
         print(
@@ -469,17 +523,21 @@ def main(argv: list[str] | None = None) -> int:
         item for item in findings if item["category"] == "unrepresentative"
     ]
 
-    print(f"scored {len(outliers)} laps; most unusual first\n")
+    print(
+        f"scored {len(outliers)} laps against their same-stint neighbours; "
+        "most unusual first\n"
+    )
     for item in outliers[: args.top]:
         minutes, remainder = divmod(int(item["lapTimeMs"]), 60_000)
         seconds = remainder / 1000
         print(
             f"  {item['score']:5.2f}  car {item['driver']:>3} lap {item['lapNumber']:>2} "
-            f"({minutes}:{seconds:06.3f}, vs {item['baselineLaps']} own laps)"
+            f"({minutes}:{seconds:06.3f}, vs {item['baselineLaps']} neighbours)"
         )
         for feature in item["topFeatures"]:
             print(
-                f"          {feature['name']:<18} {feature['value']:9.1f}   z {feature['z']:+.2f}"
+                f"          {feature['name']:<18} {feature['value']:+9.2f} vs neighbours"
+                f"   z {feature['z']:+.2f}"
             )
 
     if unrepresentative:
