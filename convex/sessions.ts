@@ -90,6 +90,7 @@ export const getSession = query({
             name: event.name,
             officialName: event.officialName ?? null,
             country: event.country,
+            corners: event.corners ?? null,
           }
         : null,
       year: season?.year ?? null,

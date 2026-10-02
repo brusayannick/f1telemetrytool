@@ -202,6 +202,7 @@ export default function ComparePage() {
               <CompareCharts
                 a={{ url: urlA, lap: lapA, label: labelA }}
                 b={{ url: urlB, lap: lapB, label: labelB }}
+                corners={bundle?.event?.corners ?? null}
               />
             ) : (
               <p className="text-sm text-muted">

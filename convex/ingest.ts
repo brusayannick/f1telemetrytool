@@ -104,6 +104,18 @@ export const upsertEvent = internalMutation({
     startDate: v.number(),
     endDate: v.number(),
     format: v.optional(v.string()),
+    corners: v.optional(
+      v.array(
+        v.object({
+          number: v.number(),
+          letter: v.optional(v.string()),
+          x: v.number(),
+          y: v.number(),
+          angle: v.number(),
+          distance: v.number(),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -120,6 +132,7 @@ export const upsertEvent = internalMutation({
       startDate: args.startDate,
       endDate: args.endDate,
       format: args.format,
+      corners: args.corners,
     };
     if (existing) {
       await ctx.db.patch(existing._id, pruneUndefined(fields));

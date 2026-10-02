@@ -209,8 +209,8 @@ export function TelemetryChart({ url, lap }: Props) {
       </div>
       <div ref={containerRef} className="w-full" />
       <p className="text-[11px] leading-relaxed text-muted">
-        * computed here rather than stored. Steering angle is not in the F1 feed — yaw
-        rate comes from the car&apos;s path as a proxy.
+        * computed here rather than stored. Steering angle is not in the F1 feed, and the
+        position channel is too coarse to derive it — see `analysis/lateral_accel.py`.
       </p>
     </div>
   );

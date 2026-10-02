@@ -7,9 +7,11 @@ import type { Telemetry } from "@/lib/telemetry";
  * Two things this registry is honest about:
  *
  * - **Steering angle does not exist in the F1 feed.** The car data carries speed, rpm,
- *   gear, throttle, brake and DRS, plus position. What can be shown instead is *yaw rate*
- *   derived from the path, which is a proxy for how much the car is rotating — useful,
- *   but not the steering wheel angle.
+ *   gear, throttle, brake and DRS, plus position — and that position cannot stand in for
+ *   it either. Measured on 2025 Abu Dhabi qualifying (`analysis/lateral_accel.py`): the
+ *   path's first derivative already carries outliers up to twice the car's real speed, and
+ *   its second derivative disagrees with the independent speed channel by 23 g rms. A yaw
+ *   rate read off that path peaked at 154 g, so it was deleted rather than shipped.
  * - **Derived series are labelled as such**, because a computed acceleration that looks
  *   authoritative is exactly the kind of number that misleads later.
  */
@@ -20,7 +22,6 @@ export type AxisKey =
   | "gear"
   | "drs"
   | "accel"
-  | "yaw"
   | "gap"
   | "elev";
 
@@ -38,7 +39,6 @@ export const AXES: Record<AxisKey, AxisSpec> = {
   gear: { range: [0, 8], label: "gear", side: 1 },
   drs: { range: [0, 14], label: "DRS", side: 1 },
   accel: { range: [-6, 6], label: "m/s²", side: 1 },
-  yaw: { range: [-120, 120], label: "°/s", side: 1 },
   gap: {
     range: (telemetry) => {
       // Most of a lap the gap is either small (traffic) or absent (leading, NaN). A fixed
@@ -139,46 +139,6 @@ function trailBraking(telemetry: Telemetry, start: number, end: number): Float64
   return out;
 }
 
-/**
- * Yaw rate in °/s from the positional path — a *proxy* for steering input.
- *
- * Heading is measured over a short span to damp position noise, unwrapped across the
- * ±180° discontinuity, then differentiated and smoothed. Expect it to look coarse: the
- * position channel is sampled at ~7 Hz with occasional gaps.
- */
-function yawRate(telemetry: Telemetry, start: number, end: number): Float64Array {
-  const { t, x, y } = telemetry.channels;
-  const size = end - start;
-  const span = 2;
-
-  const heading = new Float64Array(size);
-  for (let i = 0; i < size; i += 1) {
-    const sample = start + i;
-    const before = Math.max(start, sample - span);
-    const after = Math.min(end - 1, sample + span);
-    heading[i] = Math.atan2(y[after] - y[before], x[after] - x[before]);
-  }
-
-  const unwrapped = new Float64Array(size);
-  unwrapped[0] = heading[0];
-  for (let i = 1; i < size; i += 1) {
-    let delta = heading[i] - heading[i - 1];
-    while (delta > Math.PI) delta -= 2 * Math.PI;
-    while (delta < -Math.PI) delta += 2 * Math.PI;
-    unwrapped[i] = unwrapped[i - 1] + delta;
-  }
-
-  const out = new Float64Array(size);
-  for (let i = 0; i < size; i += 1) {
-    const before = Math.max(0, i - 2);
-    const after = Math.min(size - 1, i + 2);
-    const dt = (t[start + after] - t[start + before]) / 1000;
-    out[i] =
-      dt > 0 ? ((unwrapped[after] - unwrapped[before]) * 180) / Math.PI / dt : 0;
-  }
-  return out;
-}
-
 export const SERIES: SeriesSpec[] = [
   {
     key: "speed",
@@ -272,16 +232,6 @@ export const SERIES: SeriesSpec[] = [
     kind: "derived",
     note: "derived: brake and throttle overlapping",
     values: trailBraking,
-  },
-  {
-    key: "yaw",
-    label: "Yaw rate",
-    axis: "yaw",
-    color: "#0b7285",
-    width: 1.25,
-    kind: "derived",
-    note: "derived from the path — a steering proxy, not steering angle",
-    values: yawRate,
   },
   {
     key: "ahead",

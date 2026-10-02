@@ -53,6 +53,14 @@ http.route({
       startDate: number;
       endDate: number;
       format?: string;
+      corners?: {
+        number: number;
+        letter?: string;
+        x: number;
+        y: number;
+        angle: number;
+        distance: number;
+      }[];
     };
     const id = await ctx.runMutation(internal.ingest.upsertEvent, {
       seasonId: body.seasonId as Id<"seasons">,
@@ -64,6 +72,7 @@ http.route({
       startDate: body.startDate,
       endDate: body.endDate,
       format: body.format,
+      corners: body.corners,
     });
     return json(id);
   }),

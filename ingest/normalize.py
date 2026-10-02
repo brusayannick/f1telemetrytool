@@ -148,6 +148,51 @@ def _event_field(event: Any, *keys: str) -> Any:
     return None
 
 
+def corner_rows(session) -> list[dict[str, Any]] | None:
+    """Curated corner positions from FastF1's circuit database.
+
+    This is the reliable way to talk about *which* corner: the position channel is good
+    enough to draw the circuit (its curvature integrates to 2 pi around a closed lap to
+    within 1%) but not good enough to find corners in it. Measured on 2025 Abu Dhabi
+    qualifying, the path's first derivative already carries outliers up to twice the car's
+    real speed, so a corner detector built on curvature would mostly detect that noise.
+
+    Returns the corner number, its x/y in the same coordinate space as the telemetry
+    channels, the corner angle and the distance along the lap, or None if the circuit has
+    no such data (it is fetched separately and may not exist for every event).
+    """
+    try:
+        corners = session.get_circuit_info().corners
+    except Exception:  # noqa: BLE001 - circuit data is optional, never fatal
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for _, corner in corners.iterrows():
+        try:
+            number = int(corner["Number"])
+            distance = float(corner["Distance"])
+            x = float(corner["X"])
+            y = float(corner["Y"])
+            angle = float(corner["Angle"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if pd.isna(distance) or pd.isna(x) or pd.isna(y):
+            continue
+        letter = corner.get("Letter")
+        text = "" if letter is None or pd.isna(letter) else str(letter).strip()
+        rows.append(
+            {
+                "number": number,
+                "letter": text or None,
+                "x": x,
+                "y": y,
+                "angle": 0.0 if pd.isna(angle) else angle,
+                "distance": distance,
+            }
+        )
+    return rows or None
+
+
 def session_meta(session) -> dict[str, Any]:
     """Build season/event/session upsert payloads from a loaded FastF1 session."""
     event = session.event
@@ -199,6 +244,7 @@ def session_meta(session) -> dict[str, Any]:
             "startDate": weekend_start_ms,
             "endDate": weekend_end_ms,
             "format": _opt_str(_event_field(event, "EventFormat", "Format")),
+            "corners": corner_rows(session),
         },
         "session": {
             "name": session.name,

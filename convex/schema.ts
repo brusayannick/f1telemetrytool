@@ -34,6 +34,22 @@ export default defineSchema({
     startDate: v.number(),
     endDate: v.number(),
     format: v.optional(v.string()),
+    // Curated corner positions for this circuit, straight from FastF1's corner database:
+    // distance along the lap plus the corner's own x/y in the same coordinate space as the
+    // telemetry. Corners are *not* derived from curvature — the position channel is good
+    // enough to draw the track, not to find corners in it (see analysis/lateral_accel.py).
+    corners: v.optional(
+      v.array(
+        v.object({
+          number: v.number(),
+          letter: v.optional(v.string()),
+          x: v.number(),
+          y: v.number(),
+          angle: v.number(),
+          distance: v.number(),
+        }),
+      ),
+    ),
   })
     .index("by_season_round", ["seasonId", "round"])
     .index("by_start", ["startDate"]),

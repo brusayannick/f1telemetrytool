@@ -16,6 +16,12 @@ import {
 } from "@/lib/telemetry";
 import { SkeletonChart } from "@/components/skeleton";
 import { TrackMap } from "@/components/track-map";
+import {
+  cornerDeltas,
+  cornerPerformance,
+  type Corner,
+  type CornerDelta,
+} from "@/lib/corners";
 
 export type LapRef = {
   lapNumber: number;
@@ -83,6 +89,7 @@ type Built = {
   biggestGainAtM: number;
   biggestLossMs: number;
   biggestLossAtM: number;
+  corners: CornerDelta[] | null;
 };
 
 function medianStep(times: Float64Array): number {
@@ -93,7 +100,7 @@ function medianStep(times: Float64Array): number {
   return steps[Math.floor(steps.length / 2)];
 }
 
-function build(a: LapSeries, b: LapSeries): Built | null {
+function build(a: LapSeries, b: LapSeries, corners: Corner[] | null): Built | null {
   const gridA = gridSeries(a);
   const gridB = gridSeries(b);
   if (!gridA || !gridB) return null;
@@ -141,6 +148,11 @@ function build(a: LapSeries, b: LapSeries): Built | null {
     }
   }
 
+  const cornerMetrics =
+    corners && corners.length > 0
+      ? cornerDeltas(cornerPerformance(a, corners), cornerPerformance(b, corners), trace)
+      : null;
+
   return {
     speed,
     pedals,
@@ -153,10 +165,19 @@ function build(a: LapSeries, b: LapSeries): Built | null {
     biggestGainAtM,
     biggestLossMs,
     biggestLossAtM,
+    corners: cornerMetrics,
   };
 }
 
-export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
+export function CompareCharts({
+  a,
+  b,
+  corners = null,
+}: {
+  a: CompareSide;
+  b: CompareSide;
+  corners?: Corner[] | null;
+}) {
   const speedRef = useRef<HTMLDivElement>(null);
   const pedalsRef = useRef<HTMLDivElement>(null);
   const deltaRef = useRef<HTMLDivElement>(null);
@@ -191,8 +212,8 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
     const seriesA = lapSeries(telemetryA, a.lap);
     const seriesB = lapSeries(telemetryB, b.lap);
     if (!seriesA || !seriesB) return null;
-    return build(seriesA, seriesB);
-  }, [telemetryA, telemetryB, a.lap, b.lap]);
+    return build(seriesA, seriesB, corners);
+  }, [telemetryA, telemetryB, a.lap, b.lap, corners]);
 
   const position = useMemo(
     () => (telemetryA ? lapPosition(telemetryA, a.lap) : null),
@@ -304,6 +325,9 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
 
   const seconds = (ms: number) => `${ms >= 0 ? "+" : "−"}${Math.abs(ms / 1000).toFixed(3)}s`;
 
+  const signed = (value: number, digits: number, unit = "") =>
+    `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(digits)}${unit}`;
+
   // Authoritative: the timing data. The telemetry trace cannot reproduce it exactly.
   const officialGapMs =
     a.lap.lapTimeMs !== null && b.lap.lapTimeMs !== null
@@ -344,6 +368,88 @@ export function CompareCharts({ a, b }: { a: CompareSide; b: CompareSide }) {
         </p>
         <div ref={deltaRef} className="w-full" />
       </div>
+
+      {built.corners && built.corners.length > 0 ? (
+        <div>
+          <p className="mb-3 font-mono text-[11px] uppercase tracking-widest text-muted">
+            Corner by corner — {b.label} relative to {a.label}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-widest text-muted">
+                  <th className="py-2 pr-3 font-normal">Corner</th>
+                  <th className="py-2 pr-3 text-right font-normal">Apex {a.label}</th>
+                  <th className="py-2 pr-3 text-right font-normal">Apex {b.label}</th>
+                  <th className="py-2 pr-3 text-right font-normal">Apex Δ</th>
+                  <th className="py-2 pr-3 text-right font-normal">Brake</th>
+                  <th className="py-2 pr-3 text-right font-normal">Exit Δ</th>
+                  <th className="py-2 text-right font-normal">Time Δ</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono text-xs tabular-nums">
+                {built.corners.map((corner) => (
+                  <tr key={corner.label} className="border-b border-line/60">
+                    <td className="py-1.5 pr-3">{corner.label}</td>
+                    <td className="py-1.5 pr-3 text-right text-muted">
+                      {corner.apexSpeedA.toFixed(0)}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right text-muted">
+                      {corner.apexSpeedB.toFixed(0)}
+                    </td>
+                    <td
+                      className={`py-1.5 pr-3 text-right ${
+                        corner.apexSpeedDelta > 0
+                          ? "text-success"
+                          : corner.apexSpeedDelta < 0
+                            ? "text-danger"
+                            : "text-muted"
+                      }`}
+                    >
+                      {signed(corner.apexSpeedDelta, 0, " km/h")}
+                    </td>
+                    <td className="py-1.5 pr-3 text-right">
+                      {corner.brakeDeltaM === null ? "—" : signed(corner.brakeDeltaM, 0, " m")}
+                    </td>
+                    <td
+                      className={`py-1.5 pr-3 text-right ${
+                        corner.exitSpeedDelta > 0
+                          ? "text-success"
+                          : corner.exitSpeedDelta < 0
+                            ? "text-danger"
+                            : "text-muted"
+                      }`}
+                    >
+                      {signed(corner.exitSpeedDelta, 0, " km/h")}
+                    </td>
+                    <td
+                      className={`py-1.5 text-right ${
+                        corner.timeDeltaMs === null
+                          ? "text-muted"
+                          : corner.timeDeltaMs > 0
+                            ? "text-danger"
+                            : "text-success"
+                      }`}
+                    >
+                      {corner.timeDeltaMs === null ? "—" : seconds(corner.timeDeltaMs)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-muted">
+            Corner positions come from FastF1&apos;s curated corner database, not from
+            curvature — the position channel is too coarse to find corners (see
+            `analysis/lateral_accel.py`). Apex speed is the lowest speed in the corner's own
+            stretch of lap, capped at 80 m around its marker, so neighbouring corners never
+            report the same minimum. Brake is how much later (+) or earlier (−) {b.label} got
+            on the brakes; a corner taken flat out has no braking point and shows a dash. At
+            one sample every ~{Math.round(built.sampleIntervalMs)} ms, a few km/h or a couple
+            of metres is below the resolution of this data.
+          </p>
+        </div>
+      ) : null}
 
       <dl className="grid gap-4 border-t border-line pt-4 sm:grid-cols-3 lg:grid-cols-5">
         <div>
