@@ -12,10 +12,18 @@ import {
 import {
   formatLapTime,
   lapRange,
+  lapSeries,
   loadTelemetry,
   type Telemetry,
 } from "@/lib/telemetry";
 import { lapStats, type ChannelStat } from "@/lib/lap-stats";
+import {
+  annotationMarks,
+  buildSegments,
+  segmentTotalMs,
+  type LapSegment,
+} from "@/lib/segments";
+import type { Corner } from "@/lib/corners";
 import { SkeletonChart } from "@/components/skeleton";
 
 export type WorkbenchLap = {
@@ -76,6 +84,16 @@ type Built = {
   elapsed: Float64Array;
   lanes: LaneData[];
   stats: ChannelStat[];
+  /** The lap split into corners and straights — the shared decomposition. */
+  segments: LapSegment[];
+  /** Distance of every corner's apex, for the annotation lines. */
+  marks: number[];
+  /** Sum of the segment times; must match the telemetry span exactly. */
+  segmentTotalMs: number;
+  /** Duration the telemetry window actually covers — what the segments tile. */
+  spanMs: number;
+  /** Corners the lap could not confirm and which were therefore left out. */
+  skippedCorners: number;
   samples: number;
   distanceM: number;
   medianStepMs: number;
@@ -86,6 +104,7 @@ function build(
   telemetry: Telemetry,
   lap: WorkbenchLap,
   hidden: Set<string>,
+  corners: Corner[] | null,
 ): Built | null {
   const range = lapRange(telemetry, lap);
   if (!range) return null;
@@ -131,11 +150,30 @@ function build(
     lanes.map((lane) => lane.series.key),
   );
 
+  // The lap decomposition everything analytical reads from. Built from the same lap slice
+  // as the lanes, so a corner boundary and the trace agree by construction.
+  const series = lapSeries(telemetry, lap);
+  const segments = series ? buildSegments(series, corners) : [];
+  // Markers come from every corner in the database; the segment table only carries the
+  // corners the lap could confirm. The gap between the two is surfaced, not smoothed over.
+  const marks = series ? annotationMarks(series, corners) : [];
+  const measuredCorners = segments.filter((segment) => segment.kind === "corner").length;
+
+  // The official lap time is NOT the right thing to check the sum against: the telemetry
+  // window is short by up to a sample, so a correct decomposition still lands tens to
+  // hundreds of milliseconds under the timing figure. The span is what the segments tile.
+  const spanMs = size > 1 ? elapsed[size - 1] - elapsed[0] : 0;
+
   return {
     x,
     elapsed,
     lanes,
     stats: stats?.stats ?? [],
+    segments,
+    marks,
+    segmentTotalMs: segmentTotalMs(segments),
+    spanMs,
+    skippedCorners: Math.max(0, marks.length - measuredCorners),
     samples: size,
     distanceM: stats?.distanceM ?? x[size - 1],
     medianStepMs: stats?.medianStepMs ?? 0,
@@ -148,6 +186,8 @@ type LaneProps = {
   x: Float64Array;
   cursorIdx: number | null;
   showXAxis: boolean;
+  /** Corner apex distances, drawn as vertical lines so every lane shares the annotation. */
+  marks: number[];
   onCursor: (index: number) => void;
   register: (id: string, plot: uPlot | null) => void;
 };
@@ -159,7 +199,7 @@ type LaneProps = {
  * legend, so the eye can run down the left edge of the stack and read every channel at
  * the cursor position without moving.
  */
-function Lane({ lane, x, cursorIdx, showXAxis, onCursor, register }: LaneProps) {
+function Lane({ lane, x, cursorIdx, showXAxis, marks, onCursor, register }: LaneProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -229,6 +269,29 @@ function Lane({ lane, x, cursorIdx, showXAxis, onCursor, register }: LaneProps) 
               if (index !== null && index !== undefined) onCursor(index);
             },
           ],
+          // Corner marks are drawn onto the canvas rather than added as data series: a
+          // vertical line is an annotation, not a measurement, and must not show up in
+          // the statistics table or the cursor readout.
+          draw: [
+            (self) => {
+              if (marks.length === 0) return;
+              const { ctx, bbox } = self;
+              const right = bbox.left + bbox.width;
+              ctx.save();
+              ctx.strokeStyle = "#c9ccd0";
+              ctx.lineWidth = 1;
+              ctx.setLineDash([2, 3]);
+              ctx.beginPath();
+              for (const distance of marks) {
+                const px = self.valToPos(distance, "x");
+                if (px < bbox.left || px > right) continue;
+                ctx.moveTo(px, bbox.top);
+                ctx.lineTo(px, bbox.top + bbox.height);
+              }
+              ctx.stroke();
+              ctx.restore();
+            },
+          ],
         },
       },
       [x, lane.values] as uPlot.AlignedData,
@@ -247,7 +310,7 @@ function Lane({ lane, x, cursorIdx, showXAxis, onCursor, register }: LaneProps) 
       register(lane.spec.key, null);
       plot.destroy();
     };
-  }, [lane, x, showXAxis, onCursor, register]);
+  }, [lane, x, showXAxis, marks, onCursor, register]);
 
   const value =
     cursorIdx !== null && cursorIdx < lane.values.length ? lane.values[cursorIdx] : null;
@@ -287,9 +350,11 @@ function figure(value: number, digits = 2): string {
 type Props = {
   url: string;
   lap: WorkbenchLap | null;
+  /** Curated corner database for this event; null falls back to detection. */
+  corners?: Corner[] | null;
 };
 
-export function WorkbenchChart({ url, lap }: Props) {
+export function WorkbenchChart({ url, lap, corners = null }: Props) {
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
@@ -318,8 +383,8 @@ export function WorkbenchChart({ url, lap }: Props) {
   }, [url]);
 
   const built = useMemo(
-    () => (telemetry && lap ? build(telemetry, lap, hidden) : null),
-    [telemetry, lap, hidden],
+    () => (telemetry && lap ? build(telemetry, lap, hidden, corners) : null),
+    [telemetry, lap, hidden, corners],
   );
 
   const register = useCallback((id: string, plot: uPlot | null) => {
@@ -504,6 +569,7 @@ export function WorkbenchChart({ url, lap }: Props) {
             x={built.x}
             cursorIdx={cursorIdx}
             showXAxis={index === built.lanes.length - 1}
+            marks={built.marks}
             onCursor={onCursor}
             register={register}
           />
@@ -559,11 +625,110 @@ export function WorkbenchChart({ url, lap }: Props) {
         </table>
       </div>
 
+      {/* The shared lap decomposition: corners and the straights between them. Everything
+          analytical reads from this, so segment times cannot disagree with the lanes. */}
+      {built.segments.length > 0 ? (
+        <div className="overflow-x-auto border-t border-line bg-paper">
+          <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
+            <thead>
+              <tr className="border-b border-line text-left text-[9px] uppercase tracking-[0.14em] text-muted">
+                <th className="px-3 py-2 font-normal">segment</th>
+                <th className="px-3 py-2 text-right font-normal">from</th>
+                <th className="px-3 py-2 text-right font-normal">to</th>
+                <th className="px-3 py-2 text-right font-normal">len</th>
+                <th className="px-3 py-2 text-right font-normal">time</th>
+                <th className="px-3 py-2 text-right font-normal">apex</th>
+                <th className="px-3 py-2 text-right font-normal">brake from</th>
+                <th className="px-3 py-2 text-right font-normal">exit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {built.segments.map((segment) => (
+                <tr
+                  key={`${segment.label}-${segment.fromM}`}
+                  className="border-b border-line/60"
+                >
+                  <td className="px-3 py-1.5">
+                    {segment.label}
+                    {segment.kind === "straight" && (
+                      <span className="ml-1.5 text-muted">straight</span>
+                    )}
+                    {!segment.verified && <span className="ml-1.5 text-warning">?</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-muted">
+                    {segment.fromM.toFixed(0)} m
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-muted">
+                    {segment.toM.toFixed(0)} m
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-muted">
+                    {(segment.toM - segment.fromM).toFixed(0)} m
+                  </td>
+                  <td className="px-3 py-1.5 text-right">{segment.timeMs.toFixed(0)} ms</td>
+                  <td className="px-3 py-1.5 text-right">
+                    {segment.apexSpeed === null
+                      ? "—"
+                      : `${segment.apexSpeed.toFixed(0)} km/h`}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-muted">
+                    {segment.brakeFromM === null
+                      ? "—"
+                      : `${segment.brakeFromM.toFixed(0)} m`}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-muted">
+                    {segment.exitM === null ? "—" : `${segment.exitM.toFixed(0)} m`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-line text-[10px]">
+                <td className="px-3 py-2 text-muted" colSpan={4}>
+                  Σ {built.segments.length} segments
+                  {built.skippedCorners > 0 && (
+                    <span className="text-warning">
+                      {" "}
+                      · {built.marks.length} corner markers, {built.skippedCorners} without an
+                      apex in their own stretch — drawn but not measured
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right">{built.segmentTotalMs.toFixed(0)} ms</td>
+                <td className="px-3 py-2 text-right text-muted" colSpan={3}>
+                  span {built.spanMs.toFixed(0)} ms
+                  <span
+                    className={
+                      Math.abs(built.segmentTotalMs - built.spanMs) < 1
+                        ? " text-success"
+                        : " text-danger"
+                    }
+                  >
+                    {" "}
+                    Δ {(built.segmentTotalMs - built.spanMs).toFixed(0)} ms
+                  </span>
+                  {" · "}lap {formatLapTime(lap.lapTimeMs)}
+                  {lap.lapTimeMs !== null && (
+                    <span className="text-muted">
+                      {" "}
+                      (window {(built.spanMs - lap.lapTimeMs).toFixed(0)} ms)
+                    </span>
+                  )}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ) : null}
+
       <p className="border-t border-line bg-paper px-3 py-2 font-mono text-[10px] leading-relaxed text-muted">
-        Derived channels (*) are computed in the browser, not stored. Statistics come from
-        the same functions that draw the panels. A gap is a sample the channel has no value
-        for. Sampling is uneven in the F1 feed — Δs shows the median and worst spacing, and
-        anything sharper than that cannot be read off this data.
+        One lane per channel, all on the same distance axis. Derived channels (*) are
+        computed in the browser, not stored. Statistics and segment times come from the same
+        functions that draw the lanes. A gap is a sample the channel has no value for.
+        Sampling is uneven in the F1 feed — Δs shows the median and worst spacing, and
+        anything sharper than that cannot be read off this data. Segments tile the lap, so
+        their times must sum to the telemetry span — that Δ must be zero. The official lap
+        time is a different, larger number: the telemetry window is short by up to one
+        sample, which is why it is reported separately as “window”.
       </p>
     </div>
   );

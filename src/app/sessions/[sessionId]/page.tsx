@@ -346,7 +346,11 @@ export default function SessionPage() {
             <SkeletonChart height={520} />
           </div>
         ) : activeTelemetry?.url ? (
-          <WorkbenchChart url={activeTelemetry.url} lap={selectedLap} />
+          <WorkbenchChart
+            url={activeTelemetry.url}
+            lap={selectedLap}
+            corners={bundle?.event?.corners ?? null}
+          />
         ) : (
           <div className="p-6">
             <p className="font-mono text-[11px] text-muted">

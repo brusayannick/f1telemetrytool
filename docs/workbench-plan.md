@@ -832,9 +832,16 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 | J | Datenqualität im UI | F5, F38 | A |
 | K | Betrieb und Sicherheit | Auth, Watcher-Dienst, Backfill, README | — |
 
-**Stand:** Arbeitsstrom A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane
-pro Kanal (12), volle Breite, Cursor-Readout mit Schrittsteuerung, Kanal-Statistik,
-Lane-Schalter. B bis K offen.
+**Stand:** A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane pro Kanal
+(12), volle Breite, Cursor-Readout mit Schrittsteuerung, Kanal-Statistik, Lane-Schalter.
+B begonnen: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit Segmenten, Kurvenmarken
+in allen Lanes und Segmenttabelle. C bis K offen.
+
+**Befund aus der B-Validierung (vier Strecken):** Die Abnahme „Σ Segmentzeiten = Rundenzeit"
+war falsch formuliert. Das Telemetrie-Fenster ist um 87–307 ms kürzer als die offizielle
+Rundenzeit (1–2 Samples, je Strecke verschieden). Richtig ist: **Σ Segmente = Telemetrie-Span,
+und das muss exakt null sein.** Geprüft auf Abu Dhabi, Suzuka, Silverstone und Melbourne —
+Δ = 0 ms überall. Die Fensterdifferenz wird getrennt als „window" ausgewiesen.
 
 ### Reihenfolge
 
