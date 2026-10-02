@@ -1068,11 +1068,20 @@ das man nicht aufrufen kann, erfüllt das nicht.
 Kurven bei zwei von vier Strecken um eins (Suzuka 15 → 14, Silverstone 15 → 14; Abu Dhabi
 und Melbourne unverändert). Die Segmentzahl änderte sich entsprechend (26 → 24, 27 → 26).
 Die Kurvenmarken blieben gleich (18 / 18), die Kachelung exakt.
-**Konsequenz:** Zweimal ingestierte Daten sind nicht bitgleich — FastF1s Merge kann Samples
-leicht anders legen, und eine Kurve kippt dann über die Edge-Minimum-Regel. Für den Plan
-heißt das: `metricVersion` allein genügt nicht, der **Telemetrie-Stand muss mitgezählt
-werden**, sonst sind zwei Kennzahl-Sätze nicht vergleichbar. **Status: offen** —
-Konsequenz für Arbeitsstrom I, nicht einzeln behebbar.
+**Konsequenz:** Zweimal ingestierte Daten sind nicht bitgleich — FastF1s Merge legt die Samples
+anders, und eine Kurve kippt dann über die Edge-Minimum-Regel. Für den Plan heißt das:
+`metricVersion` allein genügt nicht, der **Telemetrie-Stand muss mitgezählt werden**, sonst
+sind zwei Kennzahl-Sätze nicht vergleichbar.
+
+**Untersuchte und verworfene Behebung:** Die Edge-Minimum-Regel prüft, ob das Minimum das
+*letzte* Sample des Fensters ist (`apex === apexTo - 1`), und eine Form-Regel („ist der Speed
+nach dem Minimum um ≥ 3 km/h gestiegen?") sollte das stabilisieren. Gemessen auf Abu Dhabi
+und Suzuka, Fenster um ±1 Sample verschoben: **beide Regeln sind stabil** (alt 67/74 bzw.
+66/83 konstant, neu 64/74 bzw. 58/83 konstant). Die Positionsregel kippt also nicht durch
+eine Verschiebung — und die Form-Regel misst **weniger** Kurven, würde B4 also verschlechtern.
+Der Re-Ingest ändert die Daten selbst, nicht das Fenster; deshalb ist B14 durch keine
+Regeländerung behebbar. **Die Änderung wurde verworfen, nicht eingebaut.**
+**Status: offen** — Konsequenz für Arbeitsstrom I (Telemetrie-Stand in den Fingerprint).
 
 ### B12 — Dokumentation widersprach dem Betrieb
 **Messung:** 17 falsche oder irreführende Aussagen in `README.md` und `ingest/README.md`:
@@ -1099,4 +1108,4 @@ Kanal-Liste, und der Hinweis, dass die Workflows nicht ingestieren können.
 | B4 | bewusst offen — die Alternative wäre, fremde Scheitel zu berichten |
 | B8 | zurückgestellt — echte Auth ist Arbeitsstrom K, kein Fix am Rand |
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
-| B14 | offen — Konsequenz für Arbeitsstrom I (Telemetrie-Stand in den Fingerprint) |
+| B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |

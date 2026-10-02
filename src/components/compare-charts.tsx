@@ -103,6 +103,74 @@ function medianStep(times: Float64Array): number {
   return steps[Math.floor(steps.length / 2)];
 }
 
+type LossRow = { label: string; timeMs: number; reason: string; verified: boolean };
+
+/**
+ * The corners that decided the lap, worst first.
+ *
+ * Reads the corner rows the table already shows — no second computation path — so the
+ * ranking and the table can never disagree about a corner. Each reason names only causes
+ * that are actually present in the measured fields; where none stands out it says so
+ * rather than inventing one.
+ */
+function rankLosses(corners: CornerDelta[], limit: number): LossRow[] {
+  return corners
+    .filter((corner) => corner.timeDeltaMs !== null && corner.timeDeltaMs > 0)
+    .sort((left, right) => (right.timeDeltaMs ?? 0) - (left.timeDeltaMs ?? 0))
+    .slice(0, limit)
+    .map((corner) => {
+      // Each cause is tagged by whose side it is on. The ranked driver is the one losing
+      // time, so a positive delta on any of these three is a point in their favour — listing
+      // it unmarked next to a loss reads as if it explained the loss.
+      const parts: { text: string; helps: boolean }[] = [];
+      if (corner.brakeDeltaM !== null && Math.abs(corner.brakeDeltaM) >= 3) {
+        parts.push({
+          text:
+            corner.brakeDeltaM > 0
+              ? `${corner.brakeDeltaM.toFixed(0)} m later on the brakes`
+              : `${Math.abs(corner.brakeDeltaM).toFixed(0)} m earlier on the brakes`,
+          helps: corner.brakeDeltaM > 0,
+        });
+      }
+      if (Math.abs(corner.apexSpeedDelta) >= 2) {
+        parts.push({
+          text:
+            corner.apexSpeedDelta > 0
+              ? `${corner.apexSpeedDelta.toFixed(0)} km/h more at the apex`
+              : `${Math.abs(corner.apexSpeedDelta).toFixed(0)} km/h less at the apex`,
+          helps: corner.apexSpeedDelta > 0,
+        });
+      }
+      if (Math.abs(corner.exitSpeedDelta) >= 2) {
+        parts.push({
+          text:
+            corner.exitSpeedDelta > 0
+              ? `${corner.exitSpeedDelta.toFixed(0)} km/h more on exit`
+              : `${Math.abs(corner.exitSpeedDelta).toFixed(0)} km/h less on exit`,
+          helps: corner.exitSpeedDelta > 0,
+        });
+      }
+
+      const hurts = parts.filter((part) => !part.helps).map((part) => part.text);
+      const helps = parts.filter((part) => part.helps).map((part) => part.text);
+      const reason =
+        hurts.length > 0
+          ? helps.length > 0
+            ? `${hurts.join(", ")}, but ${helps.join(", ")}`
+            : hurts.join(", ")
+          : helps.length > 0
+            ? `nothing unfavourable measured, and ${helps.join(", ")}`
+            : "no single cause stands out in the measured fields";
+
+      return {
+        label: corner.label,
+        timeMs: corner.timeDeltaMs ?? 0,
+        reason,
+        verified: corner.verified !== false,
+      };
+    });
+}
+
 function build(a: LapSeries, b: LapSeries, corners: Corner[] | null): Built | null {
   const gridA = gridSeries(a);
   const gridB = gridSeries(b);
@@ -223,6 +291,12 @@ export function CompareCharts({
     if (!seriesA || !seriesB) return null;
     return build(seriesA, seriesB, corners);
   }, [telemetryA, telemetryB, a.lap, b.lap, corners]);
+
+  // Ranked from the same rows the corner table renders — one computation, two views.
+  const ranking = useMemo(
+    () => (built?.corners ? rankLosses(built.corners, 3) : []),
+    [built],
+  );
 
   const position = useMemo(
     () => (telemetryA ? lapPosition(telemetryA, a.lap) : null),
@@ -536,6 +610,36 @@ export function CompareCharts({
           </dd>
         </div>
       </dl>
+
+      {ranking.length > 0 ? (
+        <div className="border-t border-line pt-3">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
+            Where the lap went — {b.label} losing, worst first
+          </p>
+          <ol className="mt-2 space-y-1">
+            {ranking.map((row, index) => (
+              <li key={row.label} className="flex items-baseline gap-3 font-mono text-xs">
+                <span className="w-4 text-muted tabular-nums">{index + 1}</span>
+                <span className={`w-12 ${row.verified ? "" : "text-warning"}`}>
+                  {row.label}
+                  {row.verified ? "" : " ?"}
+                </span>
+                <span className="w-16 text-right tabular-nums text-danger">
+                  +{seconds(row.timeMs)}
+                </span>
+                <span className="flex-1 text-muted">{row.reason}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-2 text-[10px] leading-relaxed text-muted">
+            Ranked from the corner rows above, so the two cannot disagree. Each line names
+            only causes present in the measured fields; where none stands out it says so
+            instead of inventing one. A row marked ? had no braking in its stretch and is
+            not a measurement.
+          </p>
+        </div>
+      ) : null}
+
       <p className="text-xs leading-relaxed text-muted">
         The official gap comes from the timing data and is exact. The trace is built from
         telemetry sampled every ~{Math.round(built.sampleIntervalMs)} ms, and a lap window
