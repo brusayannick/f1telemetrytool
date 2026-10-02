@@ -421,7 +421,15 @@ Median und Spannweite.
 **Zweck:** wo verliert man über viele Runden am meisten.
 **Verhalten:** je Sektor und Segment Quartile der Zeit über alle gültigen Runden.
 **Abnahme:** ungültige Runden (Box, ungenau, Verkehr) sind ausgeschlossen und die
-Ausschlusszahl steht daneben.
+Ausschlusszahl steht daneben. **Stand:** umgesetzt als **Sektor-Quartile** aus den
+offiziellen Sektorzeiten — n, min, Q1, Median, Q3, IQR, Spanne, langsamste Runde je Sektor.
+Gemessen auf Abu Dhabi Q, Fahrer 1: 6 von 18 Runden zählbar, 12 ausgeschlossen (Box,
+ungenau, Gelb/SC). Die Quartile: S1 IQR **0,097 s**, S2 **0,169 s**, S3 **0,342 s** — die
+Unruhe liegt im letzten Drittel, was eine andere Debrief ist als „die Runde war 0,4 s weg".
+**Zwei Lücken, benannt statt versteckt:** der **Verkehrsfilter fehlt** in dieser Tabelle
+(er braucht den `ahead`-Kanal aus der Telemetrie; die Tabelle liest absichtlich nur
+Timing-Zeilen und kostet keinen Fetch — die UI sagt das), und die **Segment-Quartile** aus
+dem Verhalten sind offen. Siehe B19.
 
 ### F22 — Ausreißer-Scatter
 **Zweck:** echte Fehler von Streuung trennen.
@@ -1252,6 +1260,34 @@ B12: eine Beschreibung, die dem Betrieb widerspricht. Diesmal stand der Widerspr
 Produkt, nicht in der Dokumentation.
 **Status: erledigt.**
 
+### B19 — Sektorzeiten lagen seit dem ersten Ingest in der Datenbank, ungelesen
+**Messung:** Die `laps`-Tabelle trägt `s1Ms`, `s2Ms`, `s3Ms` (`convex/schema.ts:112–114`),
+gefüllt aus FastF1s `Sector1Time`/`Sector2Time`/`Sector3Time` (`ingest/normalize.py:402–404`)
+und validiert (`convex/ingest.ts:56–58`). Eine Suche über das ganze Repo findet sie an
+**genau drei Stellen**: Schema, Validator, Insert. **Keine Query, kein Feature, keine
+Kennzahl hat sie je gelesen.** F21 stand seit dem ersten Entwurf im Plan und hätte ohne
+einen einzigen Byte Telemetrie gebaut werden können.
+
+**Zweiter Teil der Messung — was fehlt:** Sektor-**Grenzdistanzen** existieren nirgends.
+Kein Feld in irgendeiner Tabelle hält sie; die kuratierten Kurvendistanzen
+(`events.corners[].distance`) sind Kurvenpositionen, keine Sektor-Schnitte. Der Plan
+definiert den Begriff „Sektor" nie — die Hierarchie `Segment / Kurve → Sektor → Runde`
+legt eine kurvenbasierte Gruppierung nahe, sagt es aber nicht. Und der Datenvertrag (§8.1,
+§8.2) erwähnt Sektoren **gar nicht**, weder als verfügbar noch als nicht verfügbar.
+
+**Konsequenz:** Für F21 sind die Grenzen auch **nicht nötig** — Quartile einer *Dauer*
+brauchen keine Position auf der Strecke. F21 ist damit vollständig baubar und gebaut.
+Grenzen wären erst nötig, um einen Sektor **auf der Strecke** zu markieren, und das
+verlangt kein Feature. Der Befund bleibt trotzdem wichtig: er zeigt, dass eine vorhandene
+Datenbasis über Jahre ungenutzt sein kann, ohne dass es irgendwo auffällt — und dass der
+Datenvertrag Dinge verschweigt, statt sie als fehlend zu führen.
+**Status: erledigt** — F21 gebaut, Lücke im Datenvertrag notiert.
+
+**Eigene Fehlmessung, zur Vollständigkeit:** Meine erste Prüfung dieses Punkts suchte per
+Shell nur exakt `s1`/`s2`/`s3` und meldete „NONE". Die Felder heißen `s1Ms` usw. Ein
+Subagent hat es korrekt gefunden. Wieder eine Behauptung, die eine Messung widerlegt hat —
+diesmal meine eigene.
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1267,6 +1303,7 @@ Produkt, nicht in der Dokumentation.
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
+| B19 | erledigt — Sektorzeiten waren da und ungelesen, F21 gebaut; der Datenvertrag nennt Sektoren nicht, das ist notiert |
 | B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |
 | B17 | **erledigt** — Ursache und Restwert gemessen: die 2-Sekunden-Werte existieren im Datenbestand nicht (max. 303 ms per 100 m), sie sind ein Zerlegungs-Artefakt; Clip-Pfad durch `±` erkannt, der absorbierende Nachbar bleibt als nicht erkennbar dokumentiert |
 | B16 | erledigt — eigene Kostenschätzung war falsch (ein File = ganze Session); F18 mit einem Fetch gebaut |

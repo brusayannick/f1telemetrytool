@@ -9,6 +9,7 @@ import type { Id } from "../../../../convex/_generated/dataModel";
 import { WorkbenchChart, type WorkbenchLap } from "@/components/workbench-chart";
 import { SegmentMatrix } from "@/components/segment-matrix";
 import { ConsistencyPanel } from "@/components/consistency-panel";
+import { SectorPanel } from "@/components/sector-panel";
 import {
   Skeleton,
   SkeletonChart,
@@ -398,6 +399,10 @@ export default function SessionPage() {
           corners={bundle?.event?.corners ?? null}
           onPickLap={setLapNumber}
         />
+      )}
+
+      {laps && laps.length > 0 && (
+        <SectorPanel laps={laps} onPickLap={setLapNumber} />
       )}
 
       <section className="mt-6">
