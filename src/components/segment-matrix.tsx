@@ -310,6 +310,15 @@ export function SegmentMatrix({
                     const best = bestByLabel.get(column.label);
                     const deltaMs =
                       best === undefined ? null : segment.timeMs - best;
+
+                    // The label now names the same piece of track on every lap, but a lap
+                    // that could not confirm a corner still covers more ground in the
+                    // segment that spans it. If the range differs materially from the one
+                    // the column header quotes, the cell is not comparable and says so
+                    // instead of contributing a number that looks like the others.
+                    const rangeDrift = Math.abs(segment.fromM - column.fromM);
+                    const comparable = rangeDrift <= 200;
+
                     const span = scaleByLabel.get(column.label) ?? 1;
                     const intensity =
                       deltaMs === null || deltaMs <= 0
@@ -319,27 +328,39 @@ export function SegmentMatrix({
                     return (
                       <td
                         key={column.label}
-                        title={`${column.label} · ${segment.timeMs.toFixed(0)} ms${
-                          deltaMs === null
-                            ? " · no clean reference"
-                            : ` · ${deltaMs >= 0 ? "+" : "−"}${Math.round(
-                                Math.abs(deltaMs),
-                              )} ms vs best`
-                        }`}
+                        title={
+                          `${column.label} · ${segment.timeMs.toFixed(0)} ms over ${numberFmt.format(
+                            segment.fromM,
+                          )}–${numberFmt.format(segment.toM)} m${
+                            comparable
+                              ? ""
+                              : ` · starts ${numberFmt.format(rangeDrift)} m from the column's ${numberFmt.format(
+                                  column.fromM,
+                                )} m — different stretch, not comparable`
+                          }${
+                            deltaMs === null
+                              ? " · no clean reference"
+                              : ` · ${deltaMs >= 0 ? "+" : "−"}${Math.round(
+                                  Math.abs(deltaMs),
+                                )} ms vs best`
+                          }`
+                        }
                         style={
-                          intensity > 0
+                          intensity > 0 && comparable
                             ? { backgroundColor: `rgba(220, 38, 38, ${intensity.toFixed(3)})` }
                             : undefined
                         }
                         className={`px-1 py-0.5 text-right ${
-                          filtered
-                            ? "opacity-40"
-                            : deltaMs !== null && deltaMs < 50
-                              ? "text-muted"
-                              : "text-ink"
+                          !comparable
+                            ? "text-muted/40 underline decoration-dotted"
+                            : filtered
+                              ? "opacity-40"
+                              : deltaMs !== null && deltaMs < 50
+                                ? "text-muted"
+                                : "text-ink"
                         }`}
                       >
-                        {deltaMs === null ? "·" : deltaLabel(deltaMs)}
+                        {!comparable ? "±" : deltaMs === null ? "·" : deltaLabel(deltaMs)}
                       </td>
                     );
                   })}
@@ -355,6 +376,11 @@ export function SegmentMatrix({
         A greyed lap still ran, so it is shown; it is excluded from the column best.
         &ldquo;–&rdquo; means the lap could not confirm that corner — it is not a zero,
         and the neighbouring corner&rsquo;s apex is not reported in its place.
+        &ldquo;±&rdquo; means the segment starts somewhere else on this lap than the
+        column header says, so the two are different stretches of track and the cell
+        refuses to compare them. Straights are named after the corner they lead into
+        (&ldquo;→T8&rdquo;) rather than by their position in the lap, because a lap that
+        loses a corner merges two straights and would shift every later number.
       </p>
     </section>
   );

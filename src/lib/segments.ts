@@ -83,13 +83,22 @@ export function buildSegments(
 
   const segments: LapSegment[] = [];
   let cursor = startM;
-  let straightIndex = 0;
 
-  const pushStraight = (from: number, to: number) => {
+  /**
+   * A straight is named after the corner it leads into, not by its position in the lap.
+   *
+   * An ordinal was wrong the moment two laps were compared: the edge-minimum rule drops a
+   * different set of corners on each lap (B4), so a lap that loses one corner merges two
+   * straights into one and every later ordinal shifts down by one. `S3` then meant a short
+   * straight on one lap and a straight that had swallowed a whole corner and its braking
+   * zone on another — which is what the segment matrix compared against each other (B17).
+   * "The run into T8" is the same piece of track on every lap, whether or not T7 was
+   * confirmed on the way there.
+   */
+  const pushStraight = (from: number, to: number, intoLabel = "END") => {
     if (to - from <= 0) return;
-    straightIndex += 1;
     segments.push({
-      label: `S${straightIndex}`,
+      label: `→${intoLabel}`,
       kind: "straight",
       fromM: from,
       toM: to,
@@ -110,7 +119,7 @@ export function buildSegments(
     const from = Math.max(cursor, windowFrom, startM);
     const to = Math.min(endM, Math.max(from, performance.exitDist));
 
-    if (from > cursor) pushStraight(cursor, from);
+    if (from > cursor) pushStraight(cursor, from, performance.label);
     if (to <= from) continue;
 
     segments.push({

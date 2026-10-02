@@ -1174,9 +1174,32 @@ Zeile. Beide Werte liegen zwei Größenordnungen über den Nachbarsegmenten ders
 **Konsequenz:** Solange das offen ist, ist **jede** Zellaussage der Matrix vorläufig — die
 Abnahme („gefilterte Runden sichtbar ausgegraut") ist erfüllt, die *inhaltliche* Richtigkeit
 der großen Werte nicht belegt. Nicht als Datenqualitäts-Badge verwenden.
-**Status: offen** — der nächste Schritt ist eine Messung, die (a) von (b) trennt: für die
-betroffene Spalte die Distanzbereiche `fromM`/`toM` beider Runden vergleichen und die
-`ahead`-Abdeckung der Zeile ausgeben.
+**Status: Ursache gefunden und behoben, Restwert offen.**
+
+**Messung, die (a) von (b) getrennt hat:** Die `ahead`-Abdeckung ist **1,00 auf jeder
+Runde**, auch auf L17 (minGap 1617 m). Hypothese (a) ist damit **widerlegt** — kein
+führendes Auto mit durchgehend NaN, der Verkehrsfilter greift.
+
+**Ursache (b), im Code nachgewiesen:** Geraden trugen einen **Zähler pro Runde**
+(`S${straightIndex}` in `segments.ts`), keinen Bezug zur Strecke. Die Edge-Minimum-Regel
+erkennt auf jeder Runde eine andere Kurvenmenge (B4: 3 Kurven pro Strecke fehlen), also
+verschmilzt auf einer Runde ohne T7 zwei Geraden zu einer und **jede weitere `S`-Nummer
+rutscht um eins**. Spalte `S3` verglich eine kurze Gerade mit einer, die eine ganze Kurve
+samt Bremszone geschluckt hatte. Geraden heißen jetzt nach der Kurve, in die sie führen
+(`→T8`) — dieselbe Strecke auf jeder Runde, unabhängig davon, ob T7 bestätigt wurde.
+Kurvenlabels (`T*`) waren bereits identitätsstabil und blieben unverändert.
+
+**Zweite Absicherung:** Auch mit stabilen Labels kann ein Segment auf einer Runde mehr
+Strecke abdecken. Die Matrix vergleicht deshalb den `fromM` der Zelle mit dem des
+Spaltenkopfs und schreibt **`±` statt einer Zahl**, wenn sie mehr als 200 m auseinander
+liegen. Gemessen: **7 Zellen** sind so markiert.
+
+**Was das nicht erklärt:** Die großen Werte bleiben und liegen nach dem Fix **lokalisiert
+auf T12 und T13** — +2.499 ms (L14), −1.782 ms (L11), +2.082 ms (L17). Das sind genau die
+zwei Kurven, die B15 als die echten Verlustkurven gemessen hat, aber 2,5 s in *einer*
+Kurve einer 82-Sekunden-Runde ist zu groß für einen Fahrfehler. **Status: offen** — der
+nächste Schritt ist, für T13 die Segmentgrenzen `fromM`/`toM` über alle Runden
+auszugeben und die Segmentdauer gegen die reine Distanz zu prüfen.
 
 ### Was davon jetzt behebbar ist
 
@@ -1193,5 +1216,5 @@ betroffene Spalte die Distanzbereiche `fromM`/`toM` beider Runden vergleichen un
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
-| B17 | der nächste Schritt ist eine Messung: (a) echte Anomalie gegen (b) falsche Spaltenzuordnung über `label` entscheiden |
+| B17 | **Ursache behoben** — Geradenlabels waren ein Zähler pro Runde und rutschten um eins (B4), jetzt identitätsbasiert (`→T8`) plus `±`-Marke bei Bereichsdrift; die großen T12/T13-Werte sind noch nicht erklärt |
 | B16 | erledigt — eigene Kostenschätzung war falsch (ein File = ganze Session); F18 mit einem Fetch gebaut |
