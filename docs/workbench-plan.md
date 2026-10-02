@@ -586,7 +586,7 @@ Jede Kennzahl gehört genau einer Ebene, und jede Anzeige nennt ihre Ebene. Ein
 | Metrik | Ebene | Eingang | Methode | Vertrauen |
 |---|---|---|---|---|
 | Segmentzeit | Segment | `dist`, `t` | Zeitdifferenz an Segmentgrenzen | gemessen |
-| Kurven-Δt | Kurve | Δ-Trace | Differenz am Scheitel | gemessen |
+| `timeDeltaMs` | Kurve | Δ-Trace | Differenz zwischen dem Ende der vorigen und dem Ende dieser Kurve (Zuwachs, geklemmt am Mittelpunkt) | gemessen |
 | Scheitelgeschwindigkeit | Phase | `speed` | Minimum im Kurvenabschnitt | gemessen |
 | Bremspunkt | Phase | `brk`, `dist` | letzte Bremsprobe vor dem Scheitel | gemessen |
 | Gasannahme | Phase | `thr`, `dist` | Distanz Scheitel → 100 % Gas | gemessen |
@@ -1098,25 +1098,39 @@ workers" mit beiden Watchern, vollständige Befehlsliste, R2 und seine Variablen
 Kanal-Liste, und der Hinweis, dass die Workflows nicht ingestieren können.
 **Status: erledigt.**
 
-### B15 — Die Δt-Zerlegung summiert exakt, aber der Rest dominiert
-**Messung:** F15 auf Abu Dhabi Q (VER gegen NOR), Rangliste:
+### B15 — Das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust
+**Erste Annahme (falsch):** Die Zerlegung sei zu eng, weil ihre Fenster nur Bremsbeginn →
+Ausgang abdecken; deshalb liege 55–85 % des Verlusts in „nicht zugeordnet".
+**Messung (die eigentliche Ursache):** `cornerDeltas` las den Δ-Trace **am Scheitel**
+(`sampleAt(trace.dist, trace.delta, left.apexDist)`). Das ist der **kumulierte**
+Zeitunterschied seit Rundenstart — nicht das, was die Kurve gekostet hat. Jede Kurve nach
+einem früheren Fehler sah dadurch schlecht aus, für einen Grund, der woanders passiert war,
+und keine Phasen-Zerlegung konnte je dazu summieren: die Phasen decken ein Fenster, der Wert
+die ganze Runde. Der Befund war also ein **Defekt in F8**, nicht nur im Modell.
+**Behebung:** Das Kurven-Δt ist jetzt der Zuwachs **durch** die Kurve — von dort, wo die
+vorige endete, bis zu ihrem Ende, geklemmt am **Mittelpunkt** zur nächsten Kurve. Die
+Inkremente kacheln die Runde. Gemessen auf Abu Dhabi Q (VER gegen NOR), kumuliert → Zuwachs:
 
-| Kurve | Δt | Bremsen | Scheitel | Ausgang | nicht zugeordnet | Summe |
-|---|---|---|---|---|---|---|
-| T6 | +0,628 s | +0,345 | −0,006 | −0,101 | +0,390 | **0,628** |
-| T12 | +0,548 s | +0,270 | −0,049 | −0,140 | +0,467 | **0,548** |
-| T7 | +0,532 s | +0,431 | −0,117 | −0,076 | +0,293 | **0,531** |
+| Kurve | vorher | nachher |
+|---|---|---|
+| T6 | +0,628 s | **+0,072 s** |
+| T12 | +0,548 s | **+0,260 s** |
+| Summe der 15 Inkremente | — | 0,308 s gegen Trace-Total 0,283 s |
 
-Die Abnahme (`Σ Beiträge + nicht zugeordnet = gemessenes Δt`, Toleranz 1 Sample) ist
-erfüllt — die Summe stimmt auf 1 ms. Aber **55–85 % des Verlusts liegen in „nicht
-zugeordnet"**: die drei Fenster decken nur die Spanne Bremsbeginn → Ausgang ab, während
-das gemessene Kurven-Δt eine längere Spanne umfasst (Anlauf vor der Bremszone und
-Auslauf danach).
-**Konsequenz:** Das Modell ist korrekt, aber wenig aussagekräftig — der Rest ist die
-größte Einzelzeile. Die Verbesserung ist, Anlauf und Auslauf als **eigene benannte
-Beiträge** zu führen statt sie in „nicht zugeordnet" zu sammeln; dann bleibt als Rest nur,
-was wirklich keiner Phase zugeordnet werden kann. **Status: offen** — Verbesserung von F15,
-kein Fehler.
+Die Rangliste rankt damit nach **Kosten** statt nach Rundenstand — was die Antwort ändert:
+T7 war Dritter und ist jetzt nirgends, T8 und T13 sind die Verlustkurven.
+
+**Drei Korrekturen, jede durch eine Messung erzwungen, nicht durch Hinsehen:**
+1. Die Fenster kachelten die Kurve nicht → der Rest hielt 55–85 % des Verlusts.
+2. Klemme am nächsten Bremsbeginn → T6s Fenster kollabierte auf **null**, weil Abu Dhabis
+   T6 und T7 nur 63 m auseinanderliegen und T7 *vor* T6s Scheitel bremst. Ohne diese Messung
+   wäre eine Kurve ohne Bremsphase ausgeliefert worden, in der der Fahrer mit 6 g bremst.
+3. Klemme am Mittelpunkt → beide Kurven behalten die halbe Lücke.
+
+**Was bleibt:** Der Rest ist jetzt der Unterschied zweier Methoden — der resampelte
+Δ-Trace gegen das direkte 1/v-Integral — und steht als `residual` im UI, statt versteckt zu
+werden. **Status: Ursache behoben**; die Restdifferenz bleibt sichtbar und erklärt. Eine
+weitere Verbesserung wäre, beide Seiten auf dieselbe Methode zu bringen.
 
 ### Was davon jetzt behebbar ist
 
@@ -1132,4 +1146,4 @@ kein Fehler.
 | B8 | zurückgestellt — echte Auth ist Arbeitsstrom K, kein Fix am Rand |
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
-| B15 | offen — F15 verbessern: Anlauf und Auslauf als eigene Beiträge statt in „nicht zugeordnet" |
+| B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
