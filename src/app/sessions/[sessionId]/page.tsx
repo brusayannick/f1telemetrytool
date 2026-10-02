@@ -8,6 +8,7 @@ import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { WorkbenchChart, type WorkbenchLap } from "@/components/workbench-chart";
 import { SegmentMatrix } from "@/components/segment-matrix";
+import { ConsistencyPanel } from "@/components/consistency-panel";
 import {
   Skeleton,
   SkeletonChart,
@@ -386,6 +387,15 @@ export default function SessionPage() {
           laps={laps}
           corners={bundle?.event?.corners ?? null}
           activeLapNumber={selectedLap?.lapNumber ?? null}
+          onPickLap={setLapNumber}
+        />
+      )}
+
+      {activeTelemetry?.url && laps && laps.length > 0 && (
+        <ConsistencyPanel
+          url={activeTelemetry.url}
+          laps={laps}
+          corners={bundle?.event?.corners ?? null}
           onPickLap={setLapNumber}
         />
       )}
