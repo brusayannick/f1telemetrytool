@@ -2,10 +2,8 @@ import { ArrowLeftRight, Map, Sparkles } from "lucide-react";
 import { DemoTelemetryChart } from "@/components/demo-telemetry-chart";
 
 const nav = [
-  { label: "Seasons", href: "/seasons" },
-  { label: "Sessions", href: "/seasons" },
-  { label: "Compare", href: "/seasons" },
-  { label: "Drivers", href: "/seasons" },
+  { label: "Workbench", href: "/seasons" },
+  { label: "Platform", href: "#platform" },
 ];
 
 const stats = [
@@ -56,7 +54,7 @@ export default function Home() {
             ))}
           </nav>
           <a
-            href="#"
+            href="/seasons"
             className="rounded-full bg-accent-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-700"
           >
             Open workbench
@@ -82,10 +80,10 @@ export default function Home() {
                 href="/seasons"
                 className="rounded-full bg-accent-600 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-700"
               >
-                Explore seasons
+                Open workbench
               </a>
               <a
-                href="#"
+                href="#platform"
                 className="rounded-full border border-line bg-paper px-6 py-3 text-sm font-medium transition-colors hover:border-accent-300 hover:text-accent-700"
               >
                 How it works
@@ -115,7 +113,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 py-20">
+        <section id="platform" className="mx-auto max-w-6xl px-6 py-20">
           <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted">
             Platform
           </p>

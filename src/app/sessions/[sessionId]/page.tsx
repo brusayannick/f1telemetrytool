@@ -6,8 +6,13 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { TelemetryChart, type ChartLap } from "@/components/telemetry-chart";
-import { Skeleton, SkeletonChart, SkeletonPills, SkeletonTable } from "@/components/skeleton";
+import { WorkbenchChart, type WorkbenchLap } from "@/components/workbench-chart";
+import {
+  Skeleton,
+  SkeletonChart,
+  SkeletonPills,
+  SkeletonTable,
+} from "@/components/skeleton";
 import { formatLapTime } from "@/lib/telemetry";
 
 const statusStyles: Record<string, string> = {
@@ -114,7 +119,7 @@ export default function SessionPage() {
     );
   }, [laps]);
 
-  const selectedLap: ChartLap | null = useMemo(() => {
+  const selectedLap: WorkbenchLap | null = useMemo(() => {
     if (!laps || laps.length === 0) return null;
     const chosen = laps.find((lap) => lap.lapNumber === lapNumber) ?? bestLap;
     if (!chosen) return null;
@@ -125,37 +130,30 @@ export default function SessionPage() {
     };
   }, [laps, lapNumber, bestLap]);
 
+  const fastestLapNumber = bestLap?.lapNumber ?? null;
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
+    <main className="mx-auto max-w-[1400px] px-4 py-6">
       <Link
         href={bundle?.year ? `/seasons/${bundle.year}` : "/seasons"}
-        className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted transition-colors hover:text-accent-700"
+        className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted transition-colors hover:text-accent-700"
       >
-        ← {bundle?.event?.name ?? "Seasons"}
+        ← seasons
       </Link>
 
       <header className="mt-4">
         {bundle === undefined ? (
-          <>
-            <Skeleton className="h-3 w-28" />
-            <Skeleton className="mt-3 h-10 w-64" />
-          </>
+          <Skeleton className="h-4 w-64" />
         ) : bundle === null ? (
-          <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">
-            Session not found
-          </h1>
+          <h1 className="font-mono text-sm font-medium">session not found</h1>
         ) : (
-          <>
-            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-              {bundle.year ?? ""} · Round {Math.round(bundle.event?.round ?? 0)}
-            </p>
-            <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight">
-              {bundle.session.name}
-            </h1>
-          </>
+          <h1 className="font-mono text-sm font-medium tracking-tight">
+            {bundle.year ?? ""} · R{Math.round(bundle.event?.round ?? 0)} ·{" "}
+            {bundle.event?.name} · {bundle.session.name}
+          </h1>
         )}
         {bundle && (
-          <div className="mt-3 flex flex-wrap items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-2">
             <span
               className={`rounded-full px-3 py-1 font-mono text-[10px] uppercase tracking-widest ${
                 statusStyles[ingestStatus ?? "pending"] ?? "bg-tile-sand text-muted"
@@ -241,168 +239,203 @@ export default function SessionPage() {
         )}
       </header>
 
-      <section className="mt-10">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-          Driver
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
+      <section>
+        <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+          drivers
         </h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {orderedDrivers.map((row) => {
-            const active = row.driverNumber === activeDriver;
-            const missing = !driversWithTelemetry.has(row.driverNumber);
-            return (
-              <button
-                key={row.driverNumber}
-                type="button"
-                onClick={() => {
-                  setDriverNumber(row.driverNumber);
-                  setLapNumber(null);
-                }}
-                title={missing ? "No telemetry stored for this driver" : row.fullName}
-                className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors ${
-                  active
-                    ? "border-accent-600 bg-accent-600 text-white"
-                    : "border-line bg-paper hover:border-accent-300"
-                }`}
-              >
-                <span
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: row.teamColor ?? "#c2410c" }}
-                />
-                <span className="font-medium">{row.code || row.driverNumber}</span>
-                <span
-                  className={`font-mono text-[10px] ${
-                    active ? "text-white/70" : "text-muted"
+        <div className="mt-2 max-h-64 overflow-y-auto border border-line bg-paper">
+          {results === undefined ? (
+            <div className="p-2">
+              <SkeletonPills count={8} width="w-full" />
+            </div>
+          ) : (
+            orderedDrivers.map((row) => {
+              const active = row.driverNumber === activeDriver;
+              const missing = !driversWithTelemetry.has(row.driverNumber);
+              return (
+                <button
+                  key={row.driverNumber}
+                  type="button"
+                  onClick={() => {
+                    setDriverNumber(row.driverNumber);
+                    setLapNumber(null);
+                  }}
+                  title={missing ? "No telemetry stored for this driver" : row.fullName}
+                  className={`flex w-full items-center gap-2 border-b border-line/60 px-2 py-1 text-left font-mono text-[11px] transition-colors last:border-b-0 ${
+                    active ? "bg-accent-600 text-white" : "hover:bg-canvas"
                   }`}
                 >
-                  {row.position ? `P${Math.round(row.position)}` : "—"}
-                </span>
-                {missing && (
                   <span
-                    className={`font-mono text-[10px] ${
-                      active ? "text-white/70" : "text-warning"
-                    }`}
-                  >
-                    no data
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {results === undefined && (
-            <SkeletonPills className="py-1" count={10} width="w-24" />
-          )}
-        </div>
-      </section>
-
-      <section className="mt-10">
-        <div className="flex items-baseline justify-between gap-4">
-          <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-            Lap
-          </h2>
-          {activeDriver && selectedLap && (
-            <Link
-              href={`/sessions/${sessionId}/compare?aDriver=${activeDriver}&aLap=${selectedLap.lapNumber}`}
-              className="font-mono text-[11px] uppercase tracking-widest text-accent-700 transition-colors hover:text-accent-900"
-            >
-              Compare this lap →
-            </Link>
-          )}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(laps ?? []).map((lap) => {
-            const active = selectedLap?.lapNumber === lap.lapNumber;
-            const slow = lap.isAccurate === false || lap.pitIn || lap.pitOut;
-            return (
-              <button
-                key={lap.lapNumber}
-                type="button"
-                onClick={() => setLapNumber(lap.lapNumber)}
-                className={`rounded-lg border px-3 py-1.5 font-mono text-xs transition-colors ${
-                  active
-                    ? "border-accent-600 bg-accent-600 text-white"
-                    : slow
-                      ? "border-line bg-tile-sand text-muted"
-                      : "border-line bg-paper hover:border-accent-300"
-                }`}
-              >
-                <span className="font-medium">{lap.lapNumber}</span>{" "}
-                <span className={active ? "text-white/80" : "text-muted"}>
-                  {formatLapTime(lap.lapTimeMs)}
-                </span>
-                {lap.compound && (
-                  <span className={active ? "text-white/70" : "text-muted"}>
-                    {" "}
-                    · {lap.compound[0]}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {laps === undefined && activeDriver && (
-            <SkeletonPills className="py-1" count={12} width="w-20" />
-          )}
-        </div>
-      </section>
-
-      <section className="mt-10 rounded-card border border-line bg-paper p-4">
-        {telemetryFiles === undefined ? (
-          <SkeletonChart />
-        ) : activeTelemetry?.url ? (
-          <TelemetryChart url={activeTelemetry.url} lap={selectedLap} />
-        ) : (
-          <p className="py-6 text-sm text-muted">
-            {loaded
-              ? bundle?.session.telemetryAvailability === "none"
-                ? "The F1 feed has no car telemetry for this session."
-                : "No telemetry stored for this driver."
-              : "Telemetry for this session hasn’t been fetched yet — use “Load telemetry” above."}
-          </p>
-        )}
-        <p className="mt-3 font-mono text-[11px] uppercase tracking-widest text-muted">
-          Speed (km/h, left) · throttle + brake (%, right) · distance axis
-        </p>
-      </section>
-
-      <section className="mt-12">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted">
-          Classification
-        </h2>
-        {results === undefined && <SkeletonTable rows={6} className="mt-4" />}
-        <table className="mt-4 w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-widest text-muted">
-              <th className="py-2 pr-3 font-normal">Pos</th>
-              <th className="py-2 pr-3 font-normal">Driver</th>
-              <th className="py-2 pr-3 font-normal">Team</th>
-              <th className="py-2 pr-3 font-normal">Time / status</th>
-              <th className="py-2 font-normal">Laps</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(results ?? []).map((row) => (
-              <tr key={row.driverNumber} className="border-b border-line/70">
-                <td className="py-2 pr-3 font-mono tabular-nums">
-                  {row.position ? Math.round(row.position) : "—"}
-                </td>
-                <td className="py-2 pr-3">
-                  <span className="mr-2 inline-block h-2 w-2 rounded-full align-middle"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
                     style={{ backgroundColor: row.teamColor ?? "#c2410c" }}
                   />
-                  {row.fullName}
-                </td>
-                <td className="py-2 pr-3 text-muted">{row.teamName}</td>
-                <td className="py-2 pr-3 font-mono tabular-nums">
-                  {row.timeMs !== null
-                    ? formatLapTime(row.timeMs)
-                    : (row.status ?? "—")}
-                </td>
-                <td className="py-2 font-mono tabular-nums text-muted">
-                  {row.laps ? Math.round(row.laps) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <span
+                    className={`w-4 text-right tabular-nums ${
+                      active ? "text-white/70" : "text-muted"
+                    }`}
+                  >
+                    {row.position ? Math.round(row.position) : "—"}
+                  </span>
+                  <span className="font-medium">{row.code || row.driverNumber}</span>
+                  <span
+                    className={`ml-auto text-[9px] ${
+                      active ? "text-white/70" : missing ? "text-warning" : "text-muted"
+                    }`}
+                  >
+                    {missing ? "no data" : row.driverNumber}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
+
+        <section>
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+              laps
+            </h2>
+            {activeDriver && selectedLap && (
+              <Link
+                href={`/sessions/${sessionId}/compare?aDriver=${activeDriver}&aLap=${selectedLap.lapNumber}`}
+                className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent-700 transition-colors hover:text-accent-900"
+              >
+                compare →
+              </Link>
+            )}
+          </div>
+          <div className="mt-2 max-h-64 overflow-y-auto border border-line bg-paper">
+            {laps === undefined ? (
+              <div className="p-2">
+                <SkeletonPills count={10} width="w-full" />
+              </div>
+            ) : (
+              laps.map((lap) => {
+                const active = selectedLap?.lapNumber === lap.lapNumber;
+                const flag =
+                  lap.isAccurate === false
+                    ? "inaccurate"
+                    : lap.pitIn
+                      ? "pit in"
+                      : lap.pitOut
+                        ? "pit out"
+                        : null;
+                return (
+                  <button
+                    key={lap.lapNumber}
+                    type="button"
+                    onClick={() => setLapNumber(lap.lapNumber)}
+                    className={`flex w-full items-center gap-2 border-b border-line/60 px-2 py-1 text-left font-mono text-[11px] transition-colors last:border-b-0 ${
+                      active ? "bg-accent-600 text-white" : "hover:bg-canvas"
+                    }`}
+                  >
+                    <span className="w-5 text-right tabular-nums">{lap.lapNumber}</span>
+                    <span className="tabular-nums">{formatLapTime(lap.lapTimeMs)}</span>
+                    <span
+                      className={`ml-auto text-[9px] ${
+                        active ? "text-white/70" : "text-muted"
+                      }`}
+                    >
+                      {lap.lapNumber === fastestLapNumber
+                        ? "fast"
+                        : (flag ?? lap.compound?.[0] ?? "")}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="mt-4 min-w-0 border border-line bg-paper">
+        {telemetryFiles === undefined ? (
+          <div className="p-4">
+            <SkeletonChart height={520} />
+          </div>
+        ) : activeTelemetry?.url ? (
+          <WorkbenchChart url={activeTelemetry.url} lap={selectedLap} />
+        ) : (
+          <div className="p-6">
+            <p className="font-mono text-[11px] text-muted">
+              {loaded
+                ? bundle?.session.telemetryAvailability === "none"
+                  ? "the F1 feed has no car telemetry for this session"
+                  : "no telemetry stored for this driver"
+                : "telemetry has not been fetched for this session yet"}
+            </p>
+            {!loaded && (
+              <p className="mt-2 max-w-xl font-mono text-[10px] leading-relaxed text-muted">
+                telemetry is fetched on demand by the ingest worker on your machine
+                (python -m ingest.cli watch). “load telemetry” above flags the session;
+                the worker picks it up within seconds and this view fills in by itself.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6">
+        <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
+          classification
+        </h2>
+        {results === undefined && <SkeletonTable rows={6} className="mt-2" />}
+        {results !== undefined && (
+          <div className="mt-2 overflow-x-auto border border-line bg-paper">
+            <table className="w-full border-collapse font-mono text-[11px] tabular-nums">
+              <thead>
+                <tr className="border-b border-line text-left text-[9px] uppercase tracking-[0.14em] text-muted">
+                  <th className="px-3 py-1.5 text-right font-normal">pos</th>
+                  <th className="px-3 py-1.5 font-normal">#</th>
+                  <th className="px-3 py-1.5 font-normal">driver</th>
+                  <th className="px-3 py-1.5 font-normal">team</th>
+                  <th className="px-3 py-1.5 text-right font-normal">time / status</th>
+                  <th className="px-3 py-1.5 text-right font-normal">laps</th>
+                  <th className="px-3 py-1.5 text-right font-normal">tel</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(results ?? []).map((row) => (
+                  <tr key={row.driverNumber} className="border-b border-line/60">
+                    <td className="px-3 py-1 text-right">
+                      {row.position ? Math.round(row.position) : "—"}
+                    </td>
+                    <td className="px-3 py-1 text-muted">{row.driverNumber}</td>
+                    <td className="px-3 py-1">
+                      <span
+                        className="mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                        style={{ backgroundColor: row.teamColor ?? "#c2410c" }}
+                      />
+                      {row.fullName}
+                    </td>
+                    <td className="px-3 py-1 text-muted">{row.teamName}</td>
+                    <td className="px-3 py-1 text-right">
+                      {row.timeMs !== null
+                        ? formatLapTime(row.timeMs)
+                        : (row.status ?? "—")}
+                    </td>
+                    <td className="px-3 py-1 text-right text-muted">
+                      {row.laps ? Math.round(row.laps) : "—"}
+                    </td>
+                    <td className="px-3 py-1 text-right">
+                      <span
+                        className={
+                          driversWithTelemetry.has(row.driverNumber)
+                            ? "text-success"
+                            : "text-muted"
+                        }
+                      >
+                        {driversWithTelemetry.has(row.driverNumber) ? "yes" : "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </main>
   );
