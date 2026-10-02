@@ -398,7 +398,10 @@ sie beigesteuert hat.
 **Verhalten:** alle Runden × alle Segmente als Heatmap der Abweichung zur besten
 Segmentzeit; Zellen mit Verkehr oder Boxenfahrt markiert.
 **Abnahme:** jede Zelle zeigt den Wert beim Überfahren; gefilterte Runden sind sichtbar
-ausgegraut, nicht stillschweigend entfernt.
+ausgegraut, nicht stillschweigend entfernt. **Stand:** umgesetzt — 13 Runden × 24 Segmente
+auf Abu Dhabi Q, Spaltenminimum nur aus sauberen Runden, gefilterte Zeilen ausgegraut mit
+Grund („traffic <300 m"), nicht bestätigte Kurven als „–" statt als fremder Wert.
+Kosten: **ein** Telemetrie-Fetch, siehe B16.
 
 #### B — Konsistenz und Verteilung
 
@@ -857,8 +860,9 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 (12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
 Kanal-Statistik, Lane-Schalter. B: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit
 Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F13** (Segmentzeiten mit
-Balken und sortierbarer Zeitspalte), **F15** (Δt-Zerlegung) und **F16** (Rangliste der
-Zeitverluste) umgesetzt und verifiziert; **F18** (Matrix) offen — siehe B16. D bis K offen.
+Balken und sortierbarer Zeitspalte), **F15** (Δt-Zerlegung), **F16** (Rangliste der
+Zeitverluste) und **F18** (Segment-Matrix) umgesetzt; B17 zur Matrix ist offen, bevor ihre
+Zahlen belastbar sind. D bis K offen.
 
 Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; **B15 ist in der Ursache
 behoben** (das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust — ein Defekt in F8);
@@ -1138,21 +1142,41 @@ weitere Verbesserung wäre, beide Seiten auf dieselbe Methode zu bringen.
 ### B16 — Der Plan schiebt die Multi-Runden-Auswertung hinter ihre eigene Voraussetzung
 **Messung:** Vier Features aus C und D brauchen die Segment- oder Kurvenwerte **aller**
 Runden eines Fahrers: F18 (Segment-Matrix), F19 (Scheitel-Konsistenz), F21
-(Rundenzeit-Streuung je Sektor) und F22 (Ausreißer-Scatter). Im Browser heißt das, jede
-Telemetriedatei zu laden: 20 Runden × ~480 KiB ≈ **9,6 MiB pro Fahrer** (aus den gespeicherten
-Dateigrößen gerechnet). Die Reihenfolge des Plans stellt Arbeitsstrom I — die serverseitige
-Aggregation — dagegen **ans Ende**, nach C, D und H.
-**Konsequenz:** Die vier Features sind bis dahin nicht sinnvoll baubar, und I kann nicht
-rechnen, was C und D nicht geliefert haben. Die Reihenfolge ist damit zirkulär: C und D
-brauchen die Datenbasis, die I bereitstellen soll.
-**Optionen:**
-- **(a) I vorziehen** — die fünf Kennzahl-Tabellen zuerst, dann lesen F18–F22 gespeicherte
-  Zahlen statt Telemetrie. Teurer jetzt, richtig danach, und es ist ohnehin die
-  Plan-Entscheidung #4.
-- **(b) Clientseitig mit Runden-Obergrenze** — z. B. die acht schnellsten gültigen Runden,
-  mit der Grenze sichtbar im UI. Billiger jetzt, aber jede Zelle muss die Grenze nennen,
-  sonst behauptet die Matrix eine Vollständigkeit, die sie nicht hat.
-**Status: offen** — braucht eine Entscheidung, keine Messung.
+(Rundenzeit-Streuung je Sektor) und F22 (Ausreißer-Scatter). Die Reihenfolge des Plans
+stellt Arbeitsstrom I — die serverseitige Aggregation — dagegen **ans Ende**, nach C, D
+und H.
+
+**Korrektur meiner eigenen Schätzung (falsch):** Ich hatte die Kosten als „20 Runden ×
+~480 KiB ≈ 9,6 MiB pro Fahrer" gerechnet und daraus abgeleitet, F18 sei clientseitig nicht
+baubar. **Nachgemessen:** Ein Telemetriefile enthält die **ganze Session** eines Fahrers,
+nicht eine Runde — 480 KiB, 26.819 Samples, alle Runden darin. F18 braucht also **einen**
+Fetch, nicht zwanzig; die Runden werden clientseitig aus demselben Puffer geschnitten.
+Der Zugriffspfad war behauptet, nicht geprüft.
+
+**Konsequenz:** Die Zirkularität bleibt für die **feldweiten** Features (F36, F37,
+Saison-Vergleiche: 20 Fahrer × 480 KiB pro Session), aber sie gilt **nicht** für die
+fahrerbezogenen Features F18, F19, F21, F22 — die sind mit einem Fetch pro Fahrer gebaut.
+I bleibt richtig, aber es blockiert C und D nicht mehr.
+**Status: erledigt** — Entscheidung (b) umgesetzt, F18 ist gebaut und läuft.
+
+### B17 — Die Matrix zeigt 2-Sekunden-Verluste auf sauberen Runden
+**Messung:** Beim ersten Lauf der Matrix (Abu Dhabi Q, Fahrer 1) stehen auf Runden, die
+weder Box noch Verkehr noch `isAccurate=false` tragen: **+2.082 ms** in einem Segment auf
+der **schnellsten Runde der Session** (L17, 1:22.207) und **+2.499 ms** in einer weiteren
+Zeile. Beide Werte liegen zwei Größenordnungen über den Nachbarsegmenten derselben Zeile.
+**Zwei Erklärungen, noch nicht entschieden:**
+- **(a) Echte Anomalie im Datenbestand** — z. B. eine Runde, in der `ahead` durchgehend NaN
+  ist (führendes Auto), sodass der Verkehrsfilter nicht greift und eine SC-/Gelbphase als
+  Fahrzeit in die Spalte eingeht.
+- **(b) Fehler in der Matrix** — die Spalten werden über `label` zugeordnet. Wenn die
+  Zerlegung zweier Runden einem Label unterschiedliche Distanzbereiche gibt, vergleicht die
+  Zelle zwei verschiedene Kurvenabschnitte.
+**Konsequenz:** Solange das offen ist, ist **jede** Zellaussage der Matrix vorläufig — die
+Abnahme („gefilterte Runden sichtbar ausgegraut") ist erfüllt, die *inhaltliche* Richtigkeit
+der großen Werte nicht belegt. Nicht als Datenqualitäts-Badge verwenden.
+**Status: offen** — der nächste Schritt ist eine Messung, die (a) von (b) trennt: für die
+betroffene Spalte die Distanzbereiche `fromM`/`toM` beider Runden vergleichen und die
+`ahead`-Abdeckung der Zeile ausgeben.
 
 ### Was davon jetzt behebbar ist
 
@@ -1169,4 +1193,5 @@ brauchen die Datenbasis, die I bereitstellen soll.
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
-| B16 | offen — die Reihenfolge C/D vor I ist zirkulär; Entscheidung nötig: I vorziehen oder Runden-Obergrenze |
+| B17 | der nächste Schritt ist eine Messung: (a) echte Anomalie gegen (b) falsche Spaltenzuordnung über `label` entscheiden |
+| B16 | erledigt — eigene Kostenschätzung war falsch (ein File = ganze Session); F18 mit einem Fetch gebaut |

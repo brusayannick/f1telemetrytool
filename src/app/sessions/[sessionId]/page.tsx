@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
 import { WorkbenchChart, type WorkbenchLap } from "@/components/workbench-chart";
+import { SegmentMatrix } from "@/components/segment-matrix";
 import {
   Skeleton,
   SkeletonChart,
@@ -378,6 +379,16 @@ export default function SessionPage() {
           </div>
         )}
       </section>
+
+      {activeTelemetry?.url && laps && laps.length > 0 && (
+        <SegmentMatrix
+          url={activeTelemetry.url}
+          laps={laps}
+          corners={bundle?.event?.corners ?? null}
+          activeLapNumber={selectedLap?.lapNumber ?? null}
+          onPickLap={setLapNumber}
+        />
+      )}
 
       <section className="mt-6">
         <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
