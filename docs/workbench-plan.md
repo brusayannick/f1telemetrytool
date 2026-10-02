@@ -861,8 +861,11 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 Kanal-Statistik, Lane-Schalter. B: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit
 Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F13** (Segmentzeiten mit
 Balken und sortierbarer Zeitspalte), **F15** (Δt-Zerlegung), **F16** (Rangliste der
-Zeitverluste) und **F18** (Segment-Matrix) umgesetzt; B17 zur Matrix ist offen, bevor ihre
-Zahlen belastbar sind. D bis K offen.
+Zeitverluste) und **F18** (Segment-Matrix) umgesetzt; B17 ist erledigt. **D**
+teilweise: **F19**, **F20** und **F22** sind im Konsistenz-Panel umgesetzt — Median/MAD je
+Kurve mit n, Bremspunkt-Streuung, Ausreißer markiert und anklickbar. Offen in D: der
+Streu-Scatter aus F22, die Einzelpunkte über der Distanz aus F20 und **F21** ganx.
+E bis K offen.
 
 Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; **B15 ist in der Ursache
 behoben** (das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust — ein Defekt in F8);
@@ -1223,6 +1226,32 @@ absorbierende Nachbar ist damit nicht mehr unsichtbar: das Segment sagt selbst, 
 mehr ist als die Kurve, nach der es heißt. Weg 3 (`cornerPerformance`-Drop) bleibt als
 Lücke in der Labelfolge sichtbar und wird mit B4 geführt, weil er dieselbe Ursache hat.
 
+### B18 — Die UI behauptete einen Filter, den der Code nicht anwendete
+**Messung:** Ein Prüf-Agent hat das neue Konsistenz-Panel gegen die Statistik-Regeln
+dieses Plans gelesen. Der Footer sagte „Laps that are inaccurate, in the pits or **in
+traffic** are excluded", und der Code prüfte Verkehr **nie** — `ConsistencyLap` hatte kein
+Verkehrsfeld, die Filterzeile kannte nur `isAccurate`, Box und Rundenzeit. Der Plan führt
+F19 in §7.2 aber ausdrücklich als vom Verkehrsfilter betroffen (Standard **an**).
+
+**Vier weitere Defekte aus derselben Prüfung:**
+1. Die im UI gedruckte Ausreißerregel lautete `|x − Median| > 3 · MAD`, der Code verlangte
+   zusätzlich `MAD > 0`. Bei MAD = 0 widersprachen sich gedruckte und ausgefürte Regel —
+   genau in dem Fall, den der Leser auf dem Schirm sieht (MAD 0.0, keine Markierung).
+2. Beide Spannweiten-Zellen sicherten nur den **unteren** Wert ab und hätten `123.4–NaN`
+   drucken können.
+3. Der „·"-Platzhalter der Scheitel-Ausreißer hing an `noBrakeLaps` — einer Größe der
+   **Brems**spalte. Eine Kurve ohne Scheitel-Ausreißer, aber mit ungebremsten Runden, ließ
+   die Zelle leer statt einen Punkt zu zeigen.
+4. Nichts hinderte den Leser, MAD für eine Standardabweichung zu halten. Die sind nicht
+   dasselbe (σ ≈ 1,48 · MAD), und das Panel sagt es jetzt.
+
+**Konsequenz:** Alle fünf sind behoben — der Verkehrsfilter wird jetzt **gemessen**
+(`ahead`, 300 m, wie in der Matrix) und die Zahl der ausgeschlossenen Runden steht im
+Footer, statt dass der Filter behauptet wird. Der Klasse nach ist das derselbe Fehler wie
+B12: eine Beschreibung, die dem Betrieb widerspricht. Diesmal stand der Widerspruch im
+Produkt, nicht in der Dokumentation.
+**Status: erledigt.**
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1238,5 +1267,6 @@ Lücke in der Labelfolge sichtbar und wird mit B4 geführt, weil er dieselbe Urs
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
+| B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |
 | B17 | **erledigt** — Ursache und Restwert gemessen: die 2-Sekunden-Werte existieren im Datenbestand nicht (max. 303 ms per 100 m), sie sind ein Zerlegungs-Artefakt; Clip-Pfad durch `±` erkannt, der absorbierende Nachbar bleibt als nicht erkennbar dokumentiert |
 | B16 | erledigt — eigene Kostenschätzung war falsch (ein File = ganze Session); F18 mit einem Fetch gebaut |
