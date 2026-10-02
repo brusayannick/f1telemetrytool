@@ -1,0 +1,937 @@
+# Workbench — Layout- und Feature-Plan
+
+Status: Entwurf v2. Beschreibt Layout, Struktur und Verhalten der Workbench.
+Kein Code — bewusst als Spezifikation, damit Umsetzung und Prüfung darauf aufbauen können.
+Auslieferung: **eine Phase**, alles zusammen.
+
+---
+
+## 0. Zweck
+
+Die Workbench ist ein **Analysewerkzeug für Telemetrie**, kein Dashboard. Sie beantwortet
+Fragen wie „wo verliert dieser Fahrer Zeit", „was genau macht er in Kurve 9 anders",
+„ist dieser Ausreißer echt oder ein Datenfehler". Sie zeigt **Daten**, nicht Zusammenfassungen.
+
+Die Landing-Page bleibt Marketing und erklärt. **Der einzige Weg in die Daten ist der
+Button „Open workbench".** Keine Chart-Vorschau auf der Landing, keine toten Links.
+
+---
+
+## 1. Prinzipien
+
+1. **Daten zuerst.** Der Lane-Stapel ist das Zentrum der Seite und bekommt die volle
+   Breite. Navigation, Filter und Metadaten sind schmale Leisten, nie Spalten, die dem
+   Plot Platz nehmen.
+2. **Ein Kanal pro Lane.** Zwei Signale teilen sich nie eine Nulllinie. Unterschiedliche
+   Einheiten auf einer Achse sind verboten, nicht „mit zwei Achsen gelöst".
+3. **Provenienz ist sichtbar.** Gespeicherte und berechnete Kanäle sind unterscheidbar
+   markiert (`*`). Jede Zahl ist auf eine Quelle zurückführbar.
+4. **Unsicherheit wird gezeigt, nicht versteckt.** Abtastlücke, fehlende Samples und
+   unzuverlässige Ableitungen stehen im UI, nicht nur im Kopf des Entwicklers.
+5. **Nichts wird gezeigt, was nicht gemessen wurde.** Lieber eine Lane weglassen als
+   eine Kurve erfinden.
+
+---
+
+## 2. Informationsarchitektur
+
+```
+/                       Landing — Marketing, ein CTA: „Open workbench"
+/workbench              Einstieg: Saisons → Events → Sessions  (bisher /seasons)
+/workbench/[year]       Event-Liste einer Saison
+/workbench/session/[id] Session-Workbench  ← Kernansicht
+/workbench/compare      Zwei-Runden-Vergleich (bisher .../compare)
+```
+
+Regeln:
+- Die Landing ist die **einzige** Seite mit erklärendem Text. Ab `/workbench` gilt
+  Mono-Typografie, `tabular-nums`, dichte Zeilen, keine Marketing-Flächen.
+- Breadcrumb zeigt immer den Pfad `Saison · Runde · Event · Session`.
+- Der Zustand der Session (Ingest-Status, Telemetrie-Abdeckung) steht in der Kopfleiste,
+  nicht in einem Banner.
+
+---
+
+## 3. Layout
+
+### 3.1 Session-Workbench (Kernansicht)
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ ← workbench   2025 · R24 · Abu Dhabi · Qualifying   [complete]  tel 20/20  cmp→│  Kopfleiste
+├───────────────────────────────────────────────────────────────────────────────┤
+│ driver │ [P1 VER][P2 NOR][P3 PIA] …                                            │  Leiste 1
+│ lap    │ [17 1:22.207 fast][16 1:22.408][15 …]                         cmp →   │  Leiste 2
+├───────────────────────────────────────────────────────────────────────────────┤
+│ ◀ ▶ copy │ sample 1 · dist 8 m · t 0:00.131 · lap 1:22.207 · n 615 ·          │  Cursor-Readout
+│          │ Δs 137 ms · max Δs 1000 ms · len 5.229 km · lanes 12               │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ SPEED THR BRK RPM GEAR DRS GAP ACC ELEV COAST TRAIL PROG      ← / → step 1    │  Lane-Schalter
+├───────────────────────────────────────────────────────────────────────────────┤
+│ SPEED     104 │ 243.6 km/h   ┌───────────────────────────────────────────┐    │
+│               │              │        ╱╲      ╱╲                        │    │
+│               │              │   ╱╲__╱  ╲___╱  ╲__                     │    │
+│               │              └───────────────────────────────────────────┘    │
+│ THROTTLE   62 │ 100.0 %      ┌───────────────────────────────────────────┐    │
+│               │              │ ▔▔▔▔▔▔▔▔╲___▔▔▔▔▔▔▔▔▔▔╲___▔▔▔▔▔▔▔▔▔▔▔▔▔    │    │
+│               │              └───────────────────────────────────────────┘    │
+│ BRAKE      54 │   0.0 %      ┌───────────────────────────────────────────┐    │
+│               │              │      ▔▔▔▔▔▔      ▔▔▔▔▔▔                   │    │
+│               │              └───────────────────────────────────────────┘    │
+│ RPM        70 │ 10927.6 rpm  ┌───────────────────────────────────────────┐    │
+│ GEAR       50 │   6.0 gear   ┌───────────────────────────────────────────┐    │
+│ DRS        44 │   8.0        ┌───────────────────────────────────────────┐    │
+│ GAP AHEAD  52 │ 2003.0 m     ┌───────────────────────────────────────────┐    │
+│ ACCEL      66 │  10.4 m/s²   ┌───────────────────────────────────────────┐    │
+│ ELEV       44 │ -24.0 m      ┌───────────────────────────────────────────┐    │
+│ COAST      36 │   0.0 %      ┌───────────────────────────────────────────┐    │
+│ TRAIL      36 │   0.0 %      ┌───────────────────────────────────────────┐    │
+│ PROGRESS   36 │  97.0 %      └───────────────────────────────────────────┘    │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ 0.00 km        1.00 km        2.00 km        3.00 km        4.00 km   5.00 km │  Distanzachse
+├───────────────────────────────────────────────────────────────────────────────┤
+│ channel │ min  at │ max  at │ mean │ σ │ duty │ gaps                            │  Statistik
+│ Speed   │ 68.0 2634│331.0 2421│229.9 │67.9│100% │ 0                            │
+│ Brake   │  0.0    0│100.0  308│ 14.2 │34.9│ 14% │ 0                            │
+│ …                                                                             │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+Merkmale:
+- **Volle Breite** für den Stapel. Keine linke Navigationsspalte.
+- **Linke Gutter** (Kanalname + Live-Wert + Einheit) ist über alle Lanes gleich breit
+  (~200 px), damit die Plots exakt untereinander liegen.
+- **Achsen-Gutter** ~54 px für die y-Werte, ebenfalls in allen Lanes identisch.
+- Nur die **unterste Lane** beschriftet die Distanzachse. Alle Lanes darüber zeichnen das
+  Gitter, damit eine Distanz überall ablesbar bleibt.
+- Der Cursor ist **eine vertikale Linie durch alle Lanes** — ein Feature in einer Lane
+  liegt vertikal über seiner Ursache in einer anderen.
+
+### 3.2 Compare-Workbench
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ A: VER L17 1:22.207      B: NOR L16 1:22.408      official gap +0.201 s        │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ DELTA        │  ┌───────────────────────────────────────────────────────┐      │  Δt-Lane (gefüllt)
+│              │  │      ▁▁▂▃▅▇█▇▅▃▂▁▁                                    │      │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ SPEED        │  A ────╱╲────  B ─ ─ ─╱╲── ─    (zwei Linien, eine Lane)  │      │
+│ THROTTLE     │  A ────▔▔▔▔    B ─ ─ ─▔▔▔▔                               │      │
+│ BRAKE        │  A ────▔▔      B ─ ─ ─▔▔                                │      │
+│ …            │                                                              │      │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ TRACK        │  Streckenkarte, Segmente nach lokaler Δt-Rate gefärbt       │      │
+├───────────────────────────────────────────────────────────────────────────────┤
+│ CORNER       │ T1 … T16: apex Δ, brake Δ, exit Δ, time Δ  (eine Zeile je Kurve)│    │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+
+Regeln für Compare:
+- **Zwei Fahrer in einer Lane** ist hier erlaubt und gewollt — es ist derselbe Kanal.
+  Farbe A durchgezogen, B gestrichelt, identische Skala.
+- Die **Delta-Lane steht ganz oben**, weil sie die Frage beantwortet, bevor man Details
+  sucht.
+- Der **offizielle Zeitabstand** aus den Timing-Daten ist die Autorität. Der Δ-Trace endet
+  dort, wo die Telemetrie endet, und wird mit seiner Distanz beschriftet — die Differenz
+  beträgt bis zu ein Sample (~137 ms bei 7.3 Hz) und ist nicht behebbar.
+
+### 3.3 Workbench-Einstieg
+
+```
+┌───────────────────────────────────────────────────────────────────────────────┐
+│ WORKBENCH                                                                     │
+│ ┌ Saison ──────────────────────────────┐ ┌ Sessions ─────────────────────────┐│
+│ │ 2025  ▸                              │ │ FP1 FP2 FP3 Q  R   20/20 drivers   ││
+│ │ 2024  ▸                              │ │ status: complete · corners 16      ││
+│ └──────────────────────────────────────┘ └───────────────────────────────────┘│
+│ R24 Abu Dhabi · Qualifying     [open]   telemetry 20/20 · corners 16           │
+└───────────────────────────────────────────────────────────────────────────────┘
+```
+Dichte Listen statt Karten. Status je Session direkt sichtbar (ingest, Abdeckung, Kurven).
+
+---
+
+## 4. Lane-Anatomie
+
+### 4.1 Aufbau
+
+| Teil | Inhalt | Zweck |
+|---|---|---|
+| Farbmarke | 3 px Linie in Kanalfarbe | Zuordnung ohne Legende |
+| Kanalname | `SPEED`, `BRAKE` … (`*` bei berechnet) | was hier steht |
+| Live-Wert | Wert am Cursor, `tabular-nums` | Zahl statt Schätzung |
+| Einheit | `km/h`, `%`, `rpm` | Einheiten nie raten |
+| Herkunft | „stored channel" / „derived: d(speed)/dt" | Provenienz |
+| Plot | uPlot mit eigener y-Skala | das Signal |
+| Grid | vertikal über alle Lanes, horizontal je Lane | Ablesbarkeit |
+
+### 4.2 Lane-Reihenfolge, Höhen, Einheiten
+
+| # | Lane | Einheit | Höhe | Skala | Anmerkung |
+|---|---|---|---|---|---|
+| 1 | Speed | km/h | 104 | fix 0–350 | trägt die Form der Runde |
+| 2 | Throttle | % | 62 | fix 0–100 | Fläche unterlegt |
+| 3 | Brake | % | 54 | fix 0–100 | diskret (0/100) |
+| 4 | RPM | rpm | 70 | fix 0–15000 | |
+| 5 | Gear | gear | 50 | fix 0–8 | diskret, Stufen |
+| 6 | DRS | 0–14 | 44 | fix 0–14 | diskret |
+| 7 | Gap ahead | m | 52 | **datenabhängig** (90. Perzentil) | NaN wenn führend |
+| 8 | Acceleration | m/s² | 66 | fix −6…6 | berechnet aus Speed |
+| 9 | Elevation | m | 44 | **datenabhängig** (z min/max) | |
+| 10 | Coasting | % | 36 | fix 0–100 | berechnet, 0/100 |
+| 11 | Trail braking | % | 36 | fix 0–100 | berechnet, 0/100 |
+| 12 | Lap progress | % | 36 | fix 0–100 | |
+
+Regeln:
+- **Fixe Skalen** für physikalisch begrenzte Kanäle — sonst sieht jede Runde „gleich" aus.
+- **Datenabhängige Skalen** nur wo die Größe von der Strecke abhängt (Höhe, Verkehr).
+- Nicht vorhandene Kanäle werden **weggelassen**, nie als Nulllinie gezeichnet.
+- Höhen sind absichtlich unterschiedlich: Speed braucht Form, Gear nur eine Stufe.
+
+### 4.3 Diskret vs. kontinuierlich
+
+| Typ | Kanäle | Darstellung |
+|---|---|---|
+| kontinuierlich | speed, rpm, accel, elev, gap, progress | Linie, ggf. Fläche |
+| diskret | brake, gear, drs, coast, trail | Stufen (stepped), keine Interpolation zwischen Samples |
+
+Begründung: Ein Bremskanal, der zwischen 0 und 100 interpoliert, behauptet Zwischenwerte,
+die es nicht gibt. Ein Gang von 5 auf 6 ist ein Sprung, keine Rampe.
+
+---
+
+## 5. Interaktion
+
+### 5.1 Cursor und Readout
+
+- Vertikale Linie in **allen** Lanes synchron, Distanz als gemeinsame Abszisse.
+- Readout zeigt pro Sample: `sample`, `dist`, `t` (Rundenzeit), sowie in jeder Lane den
+  Live-Wert.
+- **Sample-Schrittsteuerung** (`◀` / `▶`, Pfeiltasten, Shift = 10) — der einzige Weg, einen
+  exakten Wert aus einem 7.3-Hz-Signal zu lesen. Die Maus landet nur auf wenige Meter genau.
+
+### 5.2 Zoom und Pan
+
+- Ziehen horizontal = Zoom auf Distanzbereich, **wirkt auf alle Lanes**.
+- Doppelklick = Reset auf ganze Runde.
+- Presets: „ganze Runde", „Kurve n ± 150 m", „letzte 500 m".
+- Beim Zoomen bleibt die Sample-Schrittweite erhalten (Index, nicht Pixel).
+
+### 5.3 Tastatur
+
+| Taste | Wirkung |
+|---|---|
+| `←` / `→` | ein Sample zurück/vor |
+| `Shift + ←/→` | zehn Samples |
+| `Home` / `End` | Anfang/Ende der Runde |
+| `+` / `-` | Zoom um den Cursor |
+| `0` | Zoom zurücksetzen |
+| `1`…`9` | Lane ein/aus |
+| `c` | Sample als TSV kopieren |
+
+### 5.4 Copy und Export
+
+- **Copy Sample (TSV)**: Kopfzeile `sample, distance_m, elapsed_ms, <key>[<unit>]…`,
+  eine Zeile Werte. Für Tabellenkalkulation und Issue-Reports.
+- **Copy Range**: markierter Distanzbereich als TSV-Spalten.
+- **Export PNG** der Lane (uPlot `toDataURL`) für Dokumentation.
+- Alle Werte mit `NaN` bleiben `NaN` — fehlende Daten werden nicht zu 0.
+
+---
+
+## 6. Features
+
+Jeweils: Zweck, Verhalten, Abnahmekriterium.
+
+### 6.1 Ansicht und Interaktion
+
+### F1 — Lane-Stapel (Kern)
+**Zweck:** Alle Kanäle gleichzeitig, vertikal ausgerichtet.
+**Verhalten:** eine Lane pro Kanal, gemeinsame Distanzachse, synchroner Cursor, Zoom
+wirkt überall.
+**Abnahme:** 12 Lanes bei vollständigem Payload; keine Lane zeigt zwei Einheiten; ein
+Feature bei 2.4 km liegt in allen Lanes auf derselben Vertikalen.
+
+### F2 — Cursor-Readout mit Schrittsteuerung
+**Zweck:** exakte Werte statt Schätzungen.
+**Verhalten:** `◀`/`▶`, Pfeiltasten, Shift; Werte in den Lane-Kopfzeilen laufen mit.
+**Abnahme:** drei Schritte erhöhen `sample` um 3 und `dist` um die Distanz dieser Samples.
+
+### F3 — Kanal-Statistik
+**Zweck:** Verteilung und Extreme ohne Suchen.
+**Verhalten:** min/max mit der Distanz des Extremwerts, Mittelwert, σ, Duty (Anteil > 0),
+Anzahl Lücken — für genau die sichtbaren Kanäle.
+**Abnahme:** Werte stammen aus derselben Funktion, die die Lane zeichnet; Tabelle und Plot
+können nicht widersprechen.
+
+### F4 — Lane-Schalter und Presets
+**Zweck:** Ansicht auf die Frage zuschneiden.
+**Verhalten:** ein Schalter je Lane, mindestens eine bleibt an; Presets „Antrieb",
+„Fahrereingaben", „Qualität".
+**Abnahme:** abgeschaltete Lane verschwindet vollständig; die letzte Lane lässt sich nicht
+abschalten.
+
+### F5 — Datenqualität sichtbar
+**Zweck:** Fehler von Signalen unterscheiden.
+**Verhalten:** je Lane ein Qualitätsindikator: Anzahl Lücken, größter Sample-Abstand,
+Spitzenausreißer (z. B. Beschleunigung −53 m/s² bei 2544 m). Ausreißer sind markierbar und
+in der Statistik als Ausreißer gekennzeichnet.
+**Abnahme:** der bekannte Speed-Glitch bei Abu Dhabi Q, 2544 m ist in der Lane sichtbar
+und in der Statistik benannt.
+
+### F6 — Kurven-Annotation
+**Zweck:** „Kurve 9" statt „bei 3.2 km".
+**Verhalten:** Kurvenmarken aus der kuratierten Datenbank als Linien in allen Lanes; Lane
+„Kurve" mit Nummern. Fällt auf Erkennung aus dem Speed-Profil zurück, wenn keine Datenbank
+existiert — dann `C1…Cn` statt offizieller Nummern, sichtbar unterschieden.
+**Abnahme:** 16 Kurven bei Abu Dhabi; bei fehlender Datenbank ≥ 5 erkannte Bremszonen, und
+die UI sagt, dass es erkannte und keine offiziellen Kurven sind.
+
+### F7 — Delta-Lane (Compare)
+**Zweck:** die Frage „wo" sofort beantworten.
+**Verhalten:** Δt über Distanz, gefüllt, oberste Lane; offizieller Abstand als Zahl.
+**Abnahme:** Δt-Lane und Statistik nutzen denselben Trace; der offizielle Abstand ist
+getrennt ausgewiesen und als exakt gekennzeichnet.
+
+### F8 — Corner-by-Corner-Tabelle (Compare)
+**Zweck:** Befund statt Diagramm.
+**Verhalten:** je Kurve Scheitelgeschwindigkeit A/B/Δ, Bremspunkt-Δ (m), Ausgangs-Δ, Zeit-Δ.
+Nicht verifizierbare Zeilen markiert.
+**Abnahme:** Kurven mit Scheitel an fallender Abschnittskante werden übersprungen, nicht
+mit fremdem Minimum berichtet (Abu Dhabi T11).
+
+### F9 — Streckenkarte
+**Zweck:** räumlicher Kontext zum Δt.
+**Verhalten:** Umriss aus x/y, Segmente nach **lokaler** Δt-Rate gefärbt (nicht kumulativ),
+S/F-Marke, Legende.
+**Abnahme:** kumulative Färbung ist verboten — sie malt die ganze Strecke in einer Farbe.
+
+### F10 — Verkehrskontext
+**Zweck:** „langsam wegen Verkehr" von „schlecht gefahren" trennen.
+**Verhalten:** `Gap ahead` als Lane, und als Filter für jede Bewertung von Rundenzeit.
+**Abnahme:** eine Runde hinter einem anderen Auto wird nicht als Fahrfehler bewertet.
+
+### F11 — Anomalie-Overlay (blockiert)
+**Zweck:** Auffälligkeiten finden.
+**Verhalten:** Marker auf der betroffenen Lane, mit Begründung; nur bei ausreichender
+Baseline; **nicht** in der Datenbank persistiert, solange nicht validiert.
+**Abnahme:** kein Score wird gespeichert oder als Badge gezeigt, bevor er Verkehrskontext
+und Baseline-Regeln besteht. Ein Score im UI liest sich als Autorität — er muss sie
+verdienen.
+
+### F12 — Teilen
+**Zweck:** Befunde weitergeben.
+**Verhalten:** URL trägt Session, Fahrer, Runde, Zoombereich, aktive Lanes, Referenzwahl
+und alle vom Standard abweichenden Einstellungen.
+**Abnahme:** ein kopierter Link öffnet exakt dieselbe Ansicht **und** dieselben Zahlen.
+
+### F44 — Einstellungsmenü
+**Zweck:** die Parameter, die das Ergebnis wirklich verändern, an einer Stelle bedienbar
+machen — statt sie im Code zu verstecken.
+**Verhalten:** Menü aus jeder Ansicht erreichbar (`s` oder Zahnrad). Gruppiert nach
+Themen, je Parameter aktueller Wert, Standard, Wirkung in einem Satz und die betroffenen
+Features. Abweichungen vom Standard sind hervorgehoben, je Gruppe zurücksetzbar. Vier
+benannte Voreinstellungen (Abschnitt 7.3) setzen Bündel.
+**Abnahme:** kein Parameter im Menü ohne Wirkungsbeschreibung; die Kopfleiste zeigt die
+Zahl aktiver Abweichungen; jeder Export nennt die verwendeten Einstellungen.
+
+---
+
+### 6.2 Auswertung
+
+Diese Features machen aus Kanälen **Befunde**. Alle arbeiten auf einer gemeinsamen
+Zerlegung (Abschnitt 6.3) und geben immer die Stichprobengröße mit an.
+
+#### A — Rundenzerlegung
+
+### F13 — Segment-Zeiten
+**Zweck:** „wo verliere ich Zeit" beantworten, bevor man Details sucht.
+**Verhalten:** die Runde wird in Segmente zerlegt. **Festgelegt:** kurvenbasiert ist der
+Standard (Bremsbeginn → Kurvenausgang; die Geraden dazwischen werden eigene
+Geradensegmente), das feste 100-m-Raster ist eine umschaltbare Vergleichsansicht für
+streckenübergreifende Betrachtung. Je Segment die Zeit, sortierbar, als Balken über der
+Distanzachse.
+**Abnahme:** Summe der Segmentzeiten = Rundenzeit ± 1 Sample; Segmente lückenlos und
+überlappungsfrei; im Rastermodus teilen sich Kurven, die enger als ein Rasterfeld
+beieinander liegen, ein Segment — das ist sichtbar so benannt.
+
+### F14 — Kurven-Phasenzerlegung
+**Zweck:** eine Kurve ist drei Manöver, nicht eines.
+**Verhalten:** je Kurve die Phasen **Bremsen**, **Scheitel**, **Ausgang**, abgegrenzt aus
+Pedalzustand und Geschwindigkeitsminimum; je Phase Dauer, Distanz und Geschwindigkeit an
+den Grenzen.
+**Abnahme:** Phasengrenzen sind reproduzierbar; eine Kurve ohne Bremsung hat keine
+Bremsphase (nicht eine mit Dauer 0).
+
+### F15 — Δt-Zerlegung nach Ursache
+**Zweck:** aus „0,14 s verloren" wird „später gebremst, aber weniger Scheitelspeed".
+**Verhalten:** je Kurve wird das Zeitdelta aufgeteilt in Beiträge aus Bremspunkt,
+Scheitelgeschwindigkeit und Ausgangsgeschwindigkeit. **Festgelegt:** der Rest wird nicht
+in die Beiträge hineingerechnet, sondern als eigene Zeile **„nicht zugeordnet"**
+ausgewiesen. Die Zerlegung wird nie gezwungen, sich exakt aufzuteilen.
+**Abnahme:** `Σ Beiträge + nicht zugeordnet = gemessenes Kurven-Δt` (Toleranz 1 Sample);
+der Rest ist immer sichtbar, auch wenn er null ist; alle vier Zeilen sind als **Modell**
+gekennzeichnet, nicht als Messung.
+
+### F16 — Rangliste der Zeitverluste
+**Zweck:** die drei Kurven finden, die die Runde entschieden haben.
+**Verhalten:** Kurven absteigend nach Δt-Beitrag, je Zeile eine Erklärzeile
+(„−0,14 s: 8 m früher gebremst, 6 km/h weniger am Scheitel").
+**Abnahme:** Rangfolge nutzt denselben Δ-Trace wie die Delta-Lane — kein zweiter Rechenweg.
+
+### F17 — Theoretische Beste Runde
+**Zweck:** das Potenzial im eigenen Datensatz zeigen.
+**Verhalten:** beste Segmentzeit je Segment über alle Runden des Fahrers kombiniert →
+theoretische Rundenzeit, Abstand zur tatsächlich besten Runde, je Segment die Runde, die
+sie beigesteuert hat.
+**Abnahme:** theoretische Zeit ≤ beste Runde; Runde je Segment nachvollziehbar angegeben.
+
+### F18 — Segment-Matrix
+**Zweck:** Muster über eine ganze Session sehen.
+**Verhalten:** alle Runden × alle Segmente als Heatmap der Abweichung zur besten
+Segmentzeit; Zellen mit Verkehr oder Boxenfahrt markiert.
+**Abnahme:** jede Zelle zeigt den Wert beim Überfahren; gefilterte Runden sind sichtbar
+ausgegraut, nicht stillschweigend entfernt.
+
+#### B — Konsistenz und Verteilung
+
+### F19 — Scheitel-Konsistenz
+**Zweck:** wo ist der Fahrer unruhig, wo sicher.
+**Verhalten:** je Kurve Verteilung der Scheitelgeschwindigkeit über alle gültigen Runden:
+Median, MAD, Spannweite, n.
+**Abnahme:** robuste Kennzahlen (Median/MAD), nicht Mittelwert/σ; n wird immer gezeigt.
+
+### F20 — Bremspunkt-Streuung
+**Zweck:** Bremskonstanz und späte Bremsversuche erkennen.
+**Verhalten:** je Kurve die Bremspunkte aller Runden als Streuung über der Distanz, mit
+Median und Spannweite.
+**Abnahme:** Runden ohne Bremsung fließen nicht ein; Ausreißer sind markiert, nicht entfernt.
+
+### F21 — Rundenzeit-Streuung je Sektor
+**Zweck:** wo verliert man über viele Runden am meisten.
+**Verhalten:** je Sektor und Segment Quartile der Zeit über alle gültigen Runden.
+**Abnahme:** ungültige Runden (Box, ungenau, Verkehr) sind ausgeschlossen und die
+Ausschlusszahl steht daneben.
+
+### F22 — Ausreißer-Scatter
+**Zweck:** echte Fehler von Streuung trennen.
+**Verhalten:** je Kurve Scheitelgeschwindigkeit gegen Rundenzeit, Ausreißer nach
+MAD-Regel markiert, Klick springt zur Runde.
+**Abnahme:** die Ausreißerregel ist im UI benannt.
+
+#### C — Fahrereingaben
+
+### F23 — Gasannahme
+**Zweck:** „wie früh kommt er zurück ans Gas" — oft die halbe Runde.
+**Verhalten:** je Kurve Distanz und Zeit vom Scheitel bis 100 % Throttle; Verteilung über
+die Runden.
+**Abnahme:** Kurven, die nie 100 % erreichen, sind als solche ausgewiesen.
+
+### F24 — Bremsdauer und Trail-Anteil
+**Zweck:** Bremsstil vergleichbar machen.
+**Verhalten:** je Kurve Bremsdauer, Bremsweg, Anteil der Runde unter Bremsung, Anteil mit
+Gas-Überschneidung (Trail).
+**Abnahme:** der Kanal ist binär (0/100) — es wird ausschließlich Dauer und Anteil
+berichtet, **keine Bremsdruck-Analyse** (siehe 7.2).
+
+### F25 — Schaltpunkte
+**Zweck:** Übersetzung, Fahrbarkeit, Schaltfehler.
+**Verhalten:** RPM beim Hochschalten, Anzahl Schaltvorgänge je Runde, Gänge je Kurve,
+Verteilung der Schalt-RPM.
+**Abnahme:** Schaltvorgang = Gangwechsel zwischen zwei Samples; kein Schalten über eine
+Lücke hinweg gezählt.
+
+### F26 — Gang- und RPM-Histogramm
+**Zweck:** Zeitanteile statt Augenmaß.
+**Verhalten:** Zeitanteil je Gang und je RPM-Band, je Runde und als Session-Summe.
+**Abnahme:** Summe der Zeitanteile = Rundenzeit ± 1 Sample.
+
+### F27 — DRS-Nutzung
+**Zweck:** Aktivierungszonen und Nutzungsgrad.
+**Verhalten:** Zonen mit DRS aktiv, Dauer, Anteil der Runde; Vergleich über Runden.
+**Abnahme:** Wertebereich des Kanals wird korrekt gelesen (0–14, nicht nur 0/1).
+
+### F28 — Lift-and-Coast
+**Zweck:** Spritsparen und Reifenmanagement sichtbar machen.
+**Verhalten:** Ereignisse mit Gas < 2 % und Bremse 0, mit Position, Dauer und Distanz.
+**Abnahme:** Ereignisse unterhalb der Sample-Auflösung werden nicht gezählt (Mindestdauer
+2 Samples).
+
+#### D — Pace, Stint, Verkehr
+
+### F29 — Stint-Pace und Reifenabbau
+**Zweck:** die Frage jeder Rennanalyse.
+**Verhalten:** Rundenzeit gegen Reifenalter je Stint und Compound, Regressionsgerade,
+Abbau in s/Runde, R², n.
+**Abnahme:** nur gültige Runden; Regression erst ab n ≥ 8, sonst nur die Punkte ohne
+Gerade; R² und n stehen immer dabei.
+
+### F30 — Verkehrsbereinigte Pace
+**Zweck:** „langsam wegen Verkehr" von „langsam gefahren" trennen.
+**Verhalten:** Runden mit kleinem `ahead` werden markiert und optional aus jeder
+Pace-Kennzahl ausgeschlossen; die bereinigte Kurve steht neben der rohen.
+**Abnahme:** jede Pace-Kennzahl nennt die Zahl der ein- und ausgeschlossenen Runden.
+
+### F31 — Boxenfenster und Stint-Vergleich
+**Zweck:** Undercut/Overcut bewerten.
+**Verhalten:** Zeitverlust der In-Lap, Gewinn der Out-Lap, Vergleich zweier Stints über
+Reifenalter statt Rundennummer.
+**Abnahme:** In-/Out-Laps sind als solche erkannt und nicht Teil der Pace-Regression.
+
+### F32 — Kraftstoffkorrektur (optional, als Annahme gekennzeichnet)
+**Zweck:** Renndistanz-Effekt herausrechnen.
+**Verhalten:** optionale lineare Korrektur der Rundenzeit über die Renndistanz mit
+anpassbarem Sekunden-pro-Runde-Faktor.
+**Abnahme:** korrigierte Werte sind überall sichtbar als Annahme markiert; ohne
+Kraftstoffdaten wird **kein** Faktor geraten (Standard aus).
+
+#### E — Fahrzeugverhalten (nur als Proxy)
+
+### F33 — Traktions-Proxy
+**Zweck:** Radschlupf-Hinweis ohne Raddrehzahlen.
+**Verhalten:** Bereiche mit Gas > 95 % und ausbleibendem Geschwindigkeitszuwachs werden
+markiert.
+**Abnahme:** im UI als **Proxy** benannt, mit Verweis darauf, dass Raddrehzahlen fehlen.
+
+### F34 — Bremsstabilität
+**Zweck:** Blockieren/Vorderradverlust als Hinweis.
+**Verhalten:** Geschwindigkeitsabnahme pro Meter während der Bremsphase, Streuung je Kurve.
+**Abnahme:** nur über die Bremsphase berechnet, nicht über die ganze Kurve.
+
+### F35 — Höheneinfluss
+**Zweck:** bergauf/bergab von Fahrweise trennen.
+**Verhalten:** Geschwindigkeit bei gleicher Distanz gegen die Höhe (`z`) aufgetragen.
+**Abnahme:** Höhenwerte sind als Dezimeter→Meter korrekt umgerechnet.
+
+#### F — Session-weit
+
+### F36 — Feld-Envelope je Kurve
+**Zweck:** „wo ist das Feld schnell, wo nicht".
+**Verhalten:** je Kurve beste und schlechteste Scheitelgeschwindigkeit aller Fahrer, mit
+Namen; die eigene Position darin.
+**Abnahme:** nur Fahrer mit Telemetrie; n der Fahrer steht dabei.
+
+### F37 — Fahrer-Ranking je Kurve
+**Zweck:** Stärken und Schwächen pro Fahrer und Kurve.
+**Verhalten:** Δt je Fahrer gegen die gewählte Referenz (Abschnitt 6.3), sortierbar nach
+Kurve, mit n und Vertrauensgrad je Zelle.
+**Abnahme:** die Referenz ist in jeder Ansicht benannt; ein Wechsel der Referenz
+aktualisiert alle Δ-Zellen gleichzeitig; eine Zahl ohne Referenz wird nicht gerendert.
+
+### F38 — Session-Qualitätsbericht
+**Zweck:** bevor man auswertet, wissen worauf.
+**Verhalten:** Abdeckung (Fahrer, Runden, Samples), Lücken und Spitzen je Kanal,
+unverifizierte Kurven, auffällige Runden, Laufzeit des Ingests.
+**Abnahme:** der Bericht ist der erste Inhalt jeder Session-Seite, nicht versteckt.
+
+### F39 — Mehrfach-Overlay
+**Zweck:** mehr als zwei Fahrer vergleichen.
+**Verhalten:** 3–5 Fahrer in denselben Lanes, Farbskala, Referenz umschaltbar, Linien
+abschaltbar.
+**Abnahme:** bei mehr als drei Linien wird automatisch auf dünnere Linien ohne Füllung
+umgestellt.
+
+#### G — Messwerkzeuge
+
+### F40 — Bereichsmessung
+**Zweck:** Kennzahlen für einen markierten Abschnitt statt für die ganze Runde.
+**Verhalten:** Distanzbereich ziehen → Δt, Zeit, mittlere und maximale Geschwindigkeit,
+Gas-/Bremsanteil, Anzahl Schaltvorgänge für genau diesen Bereich.
+**Abnahme:** Werte sind auf den Bereich bezogen; das ist im UI ausgewiesen.
+
+### F41 — Cursor-Snapping
+**Zweck:** exakt auf Ereignisse springen statt daneben.
+**Verhalten:** der Cursor rastet auf Scheitel, Bremspunkte, Schaltpunkte, Kurvenmarken,
+Segmentgrenzen.
+**Abnahme:** Umschalten zwischen freiem und rastendem Cursor; Rastpunkte sind sichtbar.
+
+### F42 — Lesezeichen
+**Zweck:** Befunde festhalten.
+**Verhalten:** Distanzbereich mit Notiz markieren, Liste je Session, im URL-Zustand.
+**Abnahme:** Lesezeichen überleben Neuladen und sind teilbar.
+
+### F43 — Export
+**Zweck:** weiterrechnen, dokumentieren, melden.
+**Verhalten:** CSV der Kennzahlen (Kurven-, Segment-, Stint-, Schalttabelle), PNG der
+Lanes, JSON-URL der Kennzahlen für externe Auswertung.
+**Abnahme:** CSV enthält Einheiten im Kopf und `NaN` als leeres Feld; JSON ist versioniert.
+
+---
+
+### 6.3 Auswertungsarchitektur
+
+#### Aggregationsebenen
+
+```
+Sample (7.3 Hz, unregelmäßig)
+  └─ Distanzfenster (5 m Raster für Vergleiche)
+      └─ Phase (Bremsen | Scheitel | Ausgang)
+          └─ Segment / Kurve
+              └─ Sektor
+                  └─ Runde
+                      └─ Stint
+                          └─ Session
+```
+
+Jede Kennzahl gehört genau einer Ebene, und jede Anzeige nennt ihre Ebene. Ein
+„Durchschnitt" ohne Ebene ist ein Fehler.
+
+#### Metrik-Katalog (Auszug)
+
+| Metrik | Ebene | Eingang | Methode | Vertrauen |
+|---|---|---|---|---|
+| Segmentzeit | Segment | `dist`, `t` | Zeitdifferenz an Segmentgrenzen | gemessen |
+| Kurven-Δt | Kurve | Δ-Trace | Differenz am Scheitel | gemessen |
+| Scheitelgeschwindigkeit | Phase | `speed` | Minimum im Kurvenabschnitt | gemessen |
+| Bremspunkt | Phase | `brk`, `dist` | letzte Bremsprobe vor dem Scheitel | gemessen |
+| Gasannahme | Phase | `thr`, `dist` | Distanz Scheitel → 100 % Gas | gemessen |
+| Schalt-RPM | Sample | `rpm`, `gear` | RPM beim Gangwechsel | gemessen |
+| Δt-Beitrag Bremsung | Kurve | abgeleitet | Modell über Bremswegdifferenz | **Modell** |
+| Δt-Beitrag Scheitel | Kurve | abgeleitet | Modell über v²-Differenz | **Modell** |
+| Reifenabbau | Stint | Rundenzeiten | lineare Regression | gemessen, n-abhängig |
+| Traktions-Proxy | Sample | `thr`, `speed` | Gas hoch, Zuwachs aus | **Proxy** |
+| Querbeschleunigung | — | — | nicht verfügbar | **nicht verfügbar** |
+| Bremsdruck | — | — | Kanal ist binär | **nicht verfügbar** |
+
+#### Vertrauensgrade
+
+| Grad | Bedeutung | Pflicht im UI |
+|---|---|---|
+| **gemessen** | direkt aus einem Kanal | nichts |
+| **abgeleitet** | aus Kanälen berechnet, validiert | `*` und Methode im Tooltip |
+| **Modell** | Annahme oder Zerlegung | Kennzeichnung + Annahme nennen |
+| **Proxy** | Ersatz für eine fehlende Größe | als Proxy benannt, Grund genannt |
+| **nicht verfügbar** | Daten fehlen | Feature wird nicht gebaut |
+
+#### Statistik-Regeln
+
+1. **Robuste Lage:** Median und MAD, nicht Mittelwert und σ. Ausreißer dürfen eine
+   Kennzahl nicht verschieben.
+2. **n immer mitliefern.** Keine Kennzahl ohne Stichprobengröße.
+3. **Ausreißer markieren, nicht löschen.** `|x − Median| > 3 · MAD` wird markiert und
+   bleibt sichtbar.
+4. **Regression nur ab n ≥ 8**, mit R² und Steigung; darunter nur die Punkte.
+5. **Keine Glättung ohne Angabe.** Wird geglättet, steht das Fenster dabei.
+6. **Unschärfe der Abtastung respektieren.** Kennzahlen, die feiner als ~137 ms sind,
+   werden nicht berichtet.
+
+#### Referenz-Konzept
+
+Alles Vergleichende braucht eine benannte Referenz. **Festgelegt:** die Referenz ist frei
+wählbar, mit zwei Voreinstellungen, zwischen denen ein Knopf umschaltet.
+
+| Referenz | Wofür | Rang |
+|---|---|---|
+| eigene beste Runde | Fahrfehler finden | **Voreinstellung A** |
+| Stint-Median | Pace-Trend ohne Ausreißer | **Voreinstellung B** |
+| Mittel der 3 besten Runden | robuster als eine einzelne Beste | wählbar |
+| vorherige Runde desselben Fahrers | Runden-zu-Runden-Entwicklung | wählbar |
+| Teamkollege | Fahrzeug- vs. Fahrereffekt | wählbar |
+| Feldbestes je Kurve | Stärken/Schwächen im Feld | wählbar |
+| Session-Bestzeit | absolute Referenz im Feld | wählbar |
+| theoretische Beste | Potenzial im eigenen Datensatz | wählbar |
+| gleiche Session-Klasse, frühere Saison | Entwicklung über Jahre | wählbar |
+
+Die Referenz steht **immer** im UI, in jeder Ansicht und in jedem Export. Ein Δ ohne
+Referenz wird nicht angezeigt. Wechselt die Referenz, ändern sich alle Δ-Kennzahlen
+gemeinsam — es gibt keinen Zustand, in dem zwei Ansichten verschiedene Referenzen nutzen.
+
+---
+
+## 7. Einstellungen (Analyse-Parameter)
+
+### 7.1 Prinzip
+
+Ein zentrales Menü, erreichbar aus jeder Workbench-Ansicht (`s` oder Zahnrad). Es zeigt
+**nur Parameter mit echtem Einfluss** — nicht jede Konstante im Code.
+
+Faustregel für die Aufnahme: Zwei vernünftige Menschen würden unterschiedliche Werte
+wählen, **und** das Ergebnis ändert sich dadurch sichtbar. Alles andere bleibt im Code.
+
+Drei Regeln:
+
+1. **Parameter ändern Methoden, nie die Ehrlichkeit.** Das Glättungsfenster ist
+einstellbar, die Lücken-Spalte nicht abschaltbar. Es gibt keinen Schalter, der
+Datenqualität verdeckt.
+2. **Jede Abweichung vom Standard ist sichtbar.** In der Kopfleiste und in jedem Export.
+3. **Jede Kennzahl kennt ihre Einstellungen.** Serverseitige Kennzahlen tragen einen
+Settings-Fingerprint (7.4).
+
+### 7.2 Katalog
+
+#### Referenz und Vergleich
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Referenz-Standard | 9 Optionen (eigene beste Runde) | womit alles verglichen wird | **hoch** | Client | F7, F8, F13, F16, F37 |
+| N für „Mittel der N besten" | 1–10 (3) | nur bei dieser Referenz | mittel | Client | F37 |
+| Vergleichsmodus | 2 / Mehrfach 3–5 (2) | Anzahl Linien in der Lane | mittel | Client | F39 |
+
+#### Rundenauswahl — was als gültig zählt
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Verkehrsfilter | an/aus (**an**) | schließt Runden im Verkehr aus | **hoch** | Server | F19, F21, F29, F30 |
+| Verkehrsschwelle | 50–1000 m (300) | ab welchem Abstand gilt „im Verkehr" | **hoch** | Server | F29, F30 |
+| In-/Out-Laps ausschließen | an/aus (**an**) | hält Boxenrunden aus der Pace | **hoch** | Server | F29, F31 |
+| Ungenaue Runden ausschließen | an/aus (**an**) | nutzt `isAccurate` | mittel | Server | F19, F21 |
+| Gelb-/SC-Runden ausschließen | an/aus (**an**) | nutzt `trackStatus` | **hoch** | Server | F29 |
+| Mindest-n für Regression | 4–20 (8) | ab wann eine Gerade gezeigt wird | mittel | Server | F29 |
+
+#### Kurven und Segmente
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Segmentmodus | kurvenbasiert / 100 m (**kurvenbasiert**) | Zerlegung der Runde | **hoch** | Server | F13, F17, F18 |
+| Rasterweite | 25/50/100/200 m (100) | nur im Rastermodus | mittel | Server | F13, F18 |
+| Scheitel-Suchfenster | 20–200 m (80) | wie weit um den Marker das Minimum gesucht wird | **hoch** | Server | F8, F14, F19, F23 |
+| Kurven-Merge-Abstand | 0–100 m (20) | ab wann zwei Marker eine Kurve sind | mittel | Server | F8, F14 |
+| Bremszonen-Fenster | 50–400 m (200) | maximale Distanz Bremsende → Scheitel | **hoch** | Server | F8, F20, F24 |
+| Unverifizierte Kurven | markieren / ausblenden (**markieren**) | Umgang mit nicht bestätigten Kurven | mittel | Client | F8, F38 |
+
+#### Ableitungen
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Glättungsfenster | 0/10/20/50 m (**0 = roh**) | glättet abgeleitete Kanäle | **hoch** | Client | F1, F33, F34 |
+| Max. Zeitschritt | 100–1000 ms (250) | Samples mit größerem Δt fließen nicht in Ableitungen | **hoch** | Client | `accel`, F33, F34 |
+| Ausreißer-Faktor | 2–6 MAD (3) | ab wann etwas als Ausreißer gilt | mittel | Client + Server | F19, F22, F38 |
+| Beschleunigungsquelle | Speed-Kanal / Pfad (**Speed-Kanal**) | Pfad nur mit Warnhinweis | **hoch** | Client | `accel` |
+
+#### Statistik
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Lagemaß | Median / Mittelwert (**Median**) | die zentrale Kennzahl | **hoch** | Server | F19, F21, F29 |
+| Streuungsmaß | MAD / σ (**MAD**) | die Streuung | **hoch** | Server | F19, F21 |
+
+#### Pace und Reifen
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Kraftstoffkorrektur | aus/an + s pro Runde (**aus**) | rechnet den Renndistanz-Effekt heraus | mittel | Server | F29, F32 |
+| Reifenalter-Quelle | `tyreLife` / eigene Zählung (**`tyreLife`**) | x-Achse der Stint-Kurve | mittel | Server | F29, F31 |
+
+#### Anzeige
+
+| Parameter | Werte (Standard) | Wirkung | Impact | Gültigkeit | Features |
+|---|---|---|---|---|---|
+| Lane-Preset | Kern (6) / alles (12) / eigenes (**Kern**) | welche Lanes erscheinen | mittel | Client | F1, F4 |
+| Lane-Höhe | kompakt / normal / groß (**normal**) | Dichte des Stapels | niedrig | Client | F1 |
+| Diskretes Rendering | Stufen / Linien (**Stufen**) | brake/gear/drs/coast/trail | niedrig | Client | F1 |
+| Cursor-Snapping | an/aus (**aus**) | rastet auf Ereignisse | niedrig | Client | F41 |
+| Gitter | an/aus (**an**) | Lesbarkeit | niedrig | Client | F1 |
+
+### 7.3 Voreinstellungen (Bündel)
+
+| Name | Setzt | Wofür |
+|---|---|---|
+| **Qualifying** | Referenz = eigene Beste, Verkehrsfilter aus, nur Q-Session | eine schnelle Runde verstehen |
+| **Rennen** | Referenz = Stint-Median, Verkehrsfilter an (300 m), In/Out aus | Pace über Stints |
+| **Reifenanalyse** | Referenz = Stint-Median, Kraftstoffkorrektur an, Regression n ≥ 8 | Abbau verstehen |
+| **Entwicklung** | Referenz = gleiche Session frühere Saison, Segmentmodus 100 m | über Jahre vergleichen |
+
+Voreinstellungen sind **nur Bündel** von Einstellungen — keine eigenen Rechenwege. Wer ein
+Bündel lädt, sieht danach genau, welche Werte gesetzt wurden.
+
+### 7.4 Gültigkeit, Persistenz, Fingerprint
+
+- **Geltungsbereich:** Basis aus dem Nutzerprofil (lokal gespeichert), pro Ansicht im URL
+  überschreibbar.
+- **Teilen:** die URL trägt nur die **Abweichungen** vom Standard. Ein geteilter Link
+  reproduziert dieselben Zahlen, auch wenn sich Standardwerte später ändern.
+- **Fingerprint:** jede serverseitige Kennzahl speichert `settingsHash` (über alle
+  Server-Parameter) und `metricVersion`. Zwei Läufe mit unterschiedlichem Hash sind zwei
+  getrennte Kennzahl-Sätze — sie werden nie stillschweigend gemischt.
+- **Neuberechnung:** ändert sich ein Server-Parameter, markiert Convex betroffene Sessions
+  als `stale` und bietet „neu berechnen (n Sessions)" an. Es wird **nicht** automatisch der
+  ganze Bestand neu gerechnet.
+- **Sichtbarkeit:** die Kopfleiste zeigt „Einstellungen geändert · n"; ein Klick öffnet das
+  Menü genau bei den Abweichungen.
+
+### 7.5 Was nicht ins Menü kommt
+
+| Nicht einstellbar | Grund |
+|---|---|
+| Abtastrate, Quantisierung, Interpolation | Eigenschaften des Feeds, keine Wahl |
+| Inhalt der Kurvendatenbank | kuratiert; nur über Backfill änderbar |
+| Vertrauensgrad- und Ehrlichkeitsregeln | Policy, kein Parameter |
+| Formeln und Methoden selbst | einstellbar sind Parameter, nicht die Methode |
+| Alles, was Datenqualität verdeckt | Spitzen glätten „bis sie weg sind", Lücken als 0 behandeln, unverifizierte Kurven als Messung ausgeben — gibt es nicht |
+
+---
+
+## 8. Datenvertrag
+
+### 8.1 Kanäle
+
+| Kanal | Herkunft | Einheit | Verfügbarkeit |
+|---|---|---|---|
+| `t` | Feed | ms | immer |
+| `dist` | Feed | m | immer |
+| `speed` | Feed | km/h | immer |
+| `rpm` | Feed | rpm | immer |
+| `gear` | Feed | Gang | immer |
+| `thr` | Feed | % | immer |
+| `brk` | Feed | % | immer |
+| `drs` | Feed | 0–14 | immer |
+| `x`, `y` | Feed | Dezimeter | immer |
+| `z` | Feed | Dezimeter | immer |
+| `ahead` | Feed | m | neuere Payloads, NaN wenn führend |
+| `rel` | Feed | 0–1 | neuere Payloads |
+| `accel` | berechnet `d(speed)/dt` | m/s² | immer |
+| `coast`, `trail` | berechnet aus Pedalen | % | immer |
+
+### 8.2 Was es nicht gibt und nicht geben wird
+
+- **Lenkwinkel** — nicht im Feed. Und die Position kann ihn nicht ersetzen: die erste
+  Ableitung des Pfads hat Ausreißer bis zum Doppelten der realen Geschwindigkeit
+  (p99 455 km/h gegen Kanal-Maximum 331 km/h).
+- **Querbeschleunigung** — braucht die zweite Ableitung der Position; die weicht von der
+  unabhängigen Speed um 23 g RMS ab, rohe Spitzen 8.8 g gegen real ~4 g. Messung:
+  `analysis/lateral_accel.py`.
+- **Yaw-Rate** — dieselbe Methode, Spitze 154 g. Serie wurde entfernt, nicht versteckt.
+- **Bremsdruck** — `brk` ist binär (0 oder 100). Es gibt keinen Druckkanal. Möglich sind
+  nur Dauer, Weg und Anteil — jede Druck- oder Modulationsanalyse ist unmöglich.
+- **Raddrehzahlen** — fehlen. Traktion ist deshalb nur ein Proxy über Gas gegen
+  Geschwindigkeitszuwachs, keine Messung von Schlupf.
+- **Kraftstoffmenge, Reifendruck, Reifentemperatur, Aerodaten, Lenkmoment** — fehlen.
+  Massenkorrektur bleibt eine Annahme, Reifenzustand ist nur über Alter und Compound
+  beschreibbar.
+- **Gangwechsel-Zeitpunkte** — nur als Sample, an dem sich `gear` ändert; Schaltdauer ist
+  nicht messbar.
+
+### 8.3 Grenzen der Daten, die im UI stehen müssen
+
+- Abtastung ~7.3 Hz nominal, **unregelmäßig**: median 137 ms, max 1000 ms.
+- Position 0.1 m quantisiert, ~49 % der Samples interpoliert.
+- Alles, was schärfer als die Abtastung ist, ist nicht ablesbar — deshalb steht `Δs` und
+  `max Δs` im Readout.
+
+---
+
+## 9. Auslieferung — eine Phase
+
+Alles zusammen, kein Phasenschnitt, keine Teilauslieferung. Gegliedert in Arbeitsströme
+mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeiten.
+
+### Arbeitsströme
+
+| # | Arbeitsstrom | Features | Hängt ab von |
+|---|---|---|---|
+| A | Lane-Stack, Interaktion, Messwerkzeuge, Einstellungen | F1–F5, F40–F44 | — |
+| B | Kurvenmodell, Annotation, Validierung | F6, F14, F17 | Kurven-DB + Erkennung |
+| C | Segment- und Δt-Zerlegung | F13, F15, F16, F18 | B |
+| D | Statistik und Konsistenz | F19–F22 | B |
+| E | Fahrereingaben | F23–F28 | — |
+| F | Pace, Stint, Verkehr, Reifen | F29–F32, F10, F30 | E |
+| G | Fahrzeugverhalten (Proxies) | F33–F35 | E |
+| H | Session-weite Auswertung | F36–F38, F39 | C, D |
+| I | Analyse-Backend in Convex (serverseitig) | Kennzahl-Tabellen, Aggregation, F43-JSON | C, D, H |
+| J | Datenqualität im UI | F5, F38 | A |
+| K | Betrieb und Sicherheit | Auth, Watcher-Dienst, Backfill, README | — |
+
+**Stand:** Arbeitsstrom A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane
+pro Kanal (12), volle Breite, Cursor-Readout mit Schrittsteuerung, Kanal-Statistik,
+Lane-Schalter. B bis K offen.
+
+### Reihenfolge
+
+1. **K + A** zuerst: Sicherheit und die Ansicht, in der alles andere erscheint.
+2. **B**, weil jede Auswertung eine Kurven- und Segmentdefinition braucht.
+3. **C, D, E** parallel auf B aufsetzend.
+4. **F, G** auf E; **H** auf C und D.
+5. **I** zuletzt — es aggregiert, was C, D und H berechnen.
+6. **J** begleitet A bis zum Schluss.
+
+### Analyse-Backend — Entscheidung: serverseitig
+
+**Festgelegt:** Kennzahlen werden in Convex berechnet und gespeichert, nicht im Browser.
+Das ist die Variante, die skaliert und die bessere Datenqualität liefert.
+
+Warum:
+- **Skalierung.** Feld-Envelope (F36), Fahrer-Ranking (F37) und Saison-Vergleiche brauchen
+  Daten aller Fahrer und Sessions. Im Browser müsste dafür jede Telemetriedatei geladen
+  werden: 20 Fahrer × ~480 KiB × 24 Events ≈ 230 MiB pro Saison, nur um eine Zahl zu
+  bekommen. Serverseitig sind es wenige KiB pro Runde.
+- **Eine Implementierung.** UI, CSV-Export und JSON-API lesen dieselben gespeicherten
+  Kennzahlen. Zwei Rechenwege — Browser und Server — laufen unweigerlich auseinander.
+- **Wiederholbarkeit.** Jede Kennzahl trägt `metricVersion` und `computedAt`. Wird eine
+  Methode korrigiert, lässt sich neu rechnen und der Unterschied ist nachvollziehbar,
+  statt dass alte und neue Zahlen unbemerkt gemischt werden.
+- **Reaktivität.** Convex-Queries sind live: sobald der Watcher eine Session fertigstellt,
+  füllt sich die Auswertung ohne Neuladen.
+
+Was serverseitig entsteht:
+
+| Tabelle | Granularität | Inhalt |
+|---|---|---|
+| `lapMetrics` | Runde | Zeit, gültig/verworfen + Grund, Sektor- und Segmentzeiten, Verkehrsflag, Stint, Reifenalter |
+| `cornerMetrics` | Runde × Kurve | Scheitel, Bremspunkt, Gasannahme, Ausgang, Phasendauern, verifiziert |
+| `segmentMetrics` | Runde × Segment | Dauer, Δ zur Referenz, Flags |
+| `stintMetrics` | Stint | Pace-Slope, R², n, Verkehrsanteil |
+| `sessionQuality` | Session | Abdeckung, Lücken, Spitzen, unverifizierte Kurven |
+
+Im Browser bleibt nur, was den Cursor betrifft — Sample-Readout, Bereichsmessung, Zoom.
+Das braucht Latenz null und muss nirgends gespeichert werden.
+
+Auslöser: der Watcher setzt nach dem Telemetrie-Upload `metricsStatus = "due"`; eine
+Convex-Mutation rechnet die Tabellen und schreibt `metricVersion` mit.
+
+### Definition of Done
+
+- Jede Kennzahl im UI nennt Ebene, n und Vertrauensgrad.
+- Jede vergleichende Zahl nennt ihre Referenz.
+- Jede serverseitige Kennzahl trägt `settingsHash` und `metricVersion`; ein Wechsel eines
+  Server-Parameters erzeugt einen neuen Kennzahl-Satz, statt alte Werte zu überschreiben.
+- Aktive Abweichungen vom Einstellungs-Standard sind in der Kopfleiste sichtbar und
+  stehen in jedem Export.
+- Kein Feature aus Abschnitt 6.2 fehlt; jedes erfüllt sein Abnahmekriterium.
+- Der Session-Qualitätsbericht (F38) ist der erste Inhalt der Session-Seite.
+- Export (CSV/PNG/JSON) liefert dieselben Zahlen wie das UI — aus derselben Quelle.
+- `analysis/` enthält für jede neue Ableitung ein Prüfskript wie `lateral_accel.py`.
+- Prod und Dev ingestieren mit demselben Code; der Watcher läuft als Dienst und meldet
+  im UI, wenn er älteren Code ausführt als das Repo.
+- README beschreibt den echten Betrieb (lokaler Watcher, keine GitHub Actions).
+
+### Risiken einer Ein-Phasen-Lieferung
+
+- **Umfang.** Neun Arbeitsströme gleichzeitig sind viel für ein Projekt dieser Größe. Der
+  Nutzen ist ein konsistentes Datenmodell; der Preis ist ein langer Abschnitt ohne
+  benutzbare Zwischenstufe.
+- **Abhängigkeitskette.** B blockiert C, D und H. Wenn die Kurvenerkennung auf einer
+  Strecke versagt, verschiebt sich die halbe Auslieferung.
+- **Validierungslast.** Jede abgeleitete Kennzahl braucht ein Prüfskript gegen echte
+  Daten. Das ist der größte Einzelposten und wird regelmäßig unterschätzt.
+- **Kein frühes Feedback.** Fehler im Kurvenmodell fallen erst am Ende auf, wenn alle
+  Auswertungen darauf aufbauen.
+- **Gegenmittel:** Arbeitsstrom B zuerst vollständig validieren, auf mindestens drei
+  Strecken mit unterschiedlichem Charakter (Straße, Hochgeschwindigkeit, Höhenprofil),
+  bevor C, D und H beginnen.
+
+---
+
+## 10. Entscheidungen und Restfragen
+
+### Festgelegt
+
+| # | Frage | Entscheidung | Auswirkung |
+|---|---|---|---|
+| 1 | Segmentdefinition | kurvenbasiert als Standard, 100-m-Raster als Vergleichsansicht | F13, F17, F18 |
+| 2 | Δt-Zerlegung | Rest als eigene Zeile „nicht zugeordnet", nie erzwungen | F15, F16 |
+| 3 | Referenz | frei wählbar, zwei Voreinstellungen (eigene Beste, Stint-Median) | F37, alle Δ-Kennzahlen |
+| 4 | Aggregation | serverseitig in Convex | Arbeitsstrom I, F36–F38, F43 |
+| 5 | Einstellungen | zentrales Menü, nur Parameter mit Impact, Fingerprint je Kennzahl | alle Features, F44 |
+
+### Restfragen (blockieren die Umsetzung nicht)
+
+5. **Lane-Höhen** — 12 Lanes à ~50 px am Stück, oder zwei Presets („Kern" 6, „alles" 12)?
+   Vorschlag: Presets, „Kern" als Standard.
+6. **Diskrete Kanäle** — Stufen rendern oder Zustandsbalken (Gear als Blockdiagramm)?
+   Vorschlag: Stufen; Zustandsbalken später als Alternative.
+7. **Kurvenmarken** — Linien in allen Lanes oder nur in der Speed-Lane? Vorschlag: alle
+   Lanes, dünn und dezent, damit die vertikale Zuordnung sichtbar bleibt.
+8. **Mobile** — Desktop-first; Vorschlag: kein eigenes Layout, nur ein Hinweis.
+9. **Anomalie-Overlay (F11)** — bleibt blockiert, bis der Verkehrsfilter steht. Es gehört
+   in diese Phase, aber ans Ende: ein Score im UI liest sich als Autorität.

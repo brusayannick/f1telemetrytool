@@ -239,78 +239,58 @@ export default function SessionPage() {
         )}
       </header>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-      <section>
-        <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
-          drivers
-        </h2>
-        <div className="mt-2 max-h-64 overflow-y-auto border border-line bg-paper">
-          {results === undefined ? (
-            <div className="p-2">
-              <SkeletonPills count={8} width="w-full" />
-            </div>
-          ) : (
-            orderedDrivers.map((row) => {
-              const active = row.driverNumber === activeDriver;
-              const missing = !driversWithTelemetry.has(row.driverNumber);
-              return (
-                <button
-                  key={row.driverNumber}
-                  type="button"
-                  onClick={() => {
-                    setDriverNumber(row.driverNumber);
-                    setLapNumber(null);
-                  }}
-                  title={missing ? "No telemetry stored for this driver" : row.fullName}
-                  className={`flex w-full items-center gap-2 border-b border-line/60 px-2 py-1 text-left font-mono text-[11px] transition-colors last:border-b-0 ${
-                    active ? "bg-accent-600 text-white" : "hover:bg-canvas"
-                  }`}
-                >
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: row.teamColor ?? "#c2410c" }}
-                  />
-                  <span
-                    className={`w-4 text-right tabular-nums ${
-                      active ? "text-white/70" : "text-muted"
+      <div className="mt-4 space-y-1.5">
+        <div className="flex items-stretch border border-line bg-paper">
+          <span className="w-14 shrink-0 border-r border-line px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+            driver
+          </span>
+          <div className="flex flex-wrap gap-1 p-1">
+            {results === undefined ? (
+              <SkeletonPills count={8} width="w-16" />
+            ) : (
+              orderedDrivers.map((row) => {
+                const active = row.driverNumber === activeDriver;
+                const missing = !driversWithTelemetry.has(row.driverNumber);
+                return (
+                  <button
+                    key={row.driverNumber}
+                    type="button"
+                    onClick={() => {
+                      setDriverNumber(row.driverNumber);
+                      setLapNumber(null);
+                    }}
+                    title={missing ? "No telemetry stored for this driver" : row.fullName}
+                    className={`flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                      active
+                        ? "border-accent-600 bg-accent-600 text-white"
+                        : "border-line hover:border-accent-300"
                     }`}
                   >
-                    {row.position ? Math.round(row.position) : "—"}
-                  </span>
-                  <span className="font-medium">{row.code || row.driverNumber}</span>
-                  <span
-                    className={`ml-auto text-[9px] ${
-                      active ? "text-white/70" : missing ? "text-warning" : "text-muted"
-                    }`}
-                  >
-                    {missing ? "no data" : row.driverNumber}
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </section>
-
-        <section>
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
-              laps
-            </h2>
-            {activeDriver && selectedLap && (
-              <Link
-                href={`/sessions/${sessionId}/compare?aDriver=${activeDriver}&aLap=${selectedLap.lapNumber}`}
-                className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent-700 transition-colors hover:text-accent-900"
-              >
-                compare →
-              </Link>
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: row.teamColor ?? "#c2410c" }}
+                    />
+                    <span className="tabular-nums opacity-60">
+                      {row.position ? Math.round(row.position) : "—"}
+                    </span>
+                    <span className="font-medium">{row.code || row.driverNumber}</span>
+                    {missing && (
+                      <span className={active ? "text-white/70" : "text-warning"}>!</span>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
-          <div className="mt-2 max-h-64 overflow-y-auto border border-line bg-paper">
+        </div>
+
+        <div className="flex items-stretch border border-line bg-paper">
+          <span className="w-14 shrink-0 border-r border-line px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted">
+            lap
+          </span>
+          <div className="flex flex-wrap gap-1 p-1">
             {laps === undefined ? (
-              <div className="p-2">
-                <SkeletonPills count={10} width="w-full" />
-              </div>
+              <SkeletonPills count={10} width="w-14" />
             ) : (
               laps.map((lap) => {
                 const active = selectedLap?.lapNumber === lap.lapNumber;
@@ -327,16 +307,18 @@ export default function SessionPage() {
                     key={lap.lapNumber}
                     type="button"
                     onClick={() => setLapNumber(lap.lapNumber)}
-                    className={`flex w-full items-center gap-2 border-b border-line/60 px-2 py-1 text-left font-mono text-[11px] transition-colors last:border-b-0 ${
-                      active ? "bg-accent-600 text-white" : "hover:bg-canvas"
+                    className={`flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                      active
+                        ? "border-accent-600 bg-accent-600 text-white"
+                        : "border-line hover:border-accent-300"
                     }`}
                   >
-                    <span className="w-5 text-right tabular-nums">{lap.lapNumber}</span>
-                    <span className="tabular-nums">{formatLapTime(lap.lapTimeMs)}</span>
+                    <span className="tabular-nums">{lap.lapNumber}</span>
+                    <span className="tabular-nums opacity-70">
+                      {formatLapTime(lap.lapTimeMs)}
+                    </span>
                     <span
-                      className={`ml-auto text-[9px] ${
-                        active ? "text-white/70" : "text-muted"
-                      }`}
+                      className={`text-[9px] ${active ? "text-white/70" : "text-muted"}`}
                     >
                       {lap.lapNumber === fastestLapNumber
                         ? "fast"
@@ -347,7 +329,15 @@ export default function SessionPage() {
               })
             )}
           </div>
-        </section>
+          {activeDriver && selectedLap && (
+            <Link
+              href={`/sessions/${sessionId}/compare?aDriver=${activeDriver}&aLap=${selectedLap.lapNumber}`}
+              className="shrink-0 self-center px-3 font-mono text-[10px] uppercase tracking-[0.16em] text-accent-700 transition-colors hover:text-accent-900"
+            >
+              compare →
+            </Link>
+          )}
+        </div>
       </div>
 
       <section className="mt-4 min-w-0 border border-line bg-paper">

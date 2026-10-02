@@ -24,25 +24,33 @@ export type WorkbenchLap = {
   lapTimeMs: number | null;
 };
 
-type PanelSpec = {
-  id: string;
-  title: string;
-  /** Series keys in draw order; any the payload lacks are dropped, not zero-filled. */
-  series: string[];
+type LaneSpec = {
+  /** One channel key from the registry — never two signals sharing a baseline. */
+  key: string;
   height: number;
 };
 
 /**
- * The panel stack, top to bottom. Each panel carries its own scales — units are never
- * mixed onto one axis — and they all share a distance abscissa, so the cursor lines up
- * across the whole stack.
+ * One lane per channel, top to bottom — the layout a telemetry engineer expects.
+ *
+ * Every signal gets its own baseline, its own unit and its own scale, and they all share
+ * one distance abscissa, so a feature in one lane lines up vertically with its cause in
+ * another. Heights differ on purpose: speed carries the shape of the lap, while a
+ * discrete signal like gear or DRS only needs enough room to read a step.
  */
-const PANELS: PanelSpec[] = [
-  { id: "speed", title: "Speed", series: ["speed"], height: 150 },
-  { id: "pedals", title: "Pedals", series: ["throttle", "brake"], height: 116 },
-  { id: "drivetrain", title: "Drivetrain", series: ["rpm", "gear"], height: 126 },
-  { id: "aids", title: "Aids · traffic", series: ["drs", "ahead"], height: 102 },
-  { id: "derived", title: "Derived", series: ["accel", "elev"], height: 114 },
+const LANES: LaneSpec[] = [
+  { key: "speed", height: 104 },
+  { key: "throttle", height: 62 },
+  { key: "brake", height: 54 },
+  { key: "rpm", height: 70 },
+  { key: "gear", height: 50 },
+  { key: "drs", height: 44 },
+  { key: "ahead", height: 52 },
+  { key: "accel", height: 66 },
+  { key: "elev", height: 44 },
+  { key: "coast", height: 36 },
+  { key: "trail", height: 36 },
+  { key: "progress", height: 36 },
 ];
 
 const SYNC_KEY = "f1-workbench";
@@ -53,25 +61,25 @@ const AXIS_STYLE = {
   font: "10px 'IBM Plex Mono', ui-monospace, monospace",
 };
 
-type PanelData = {
-  spec: PanelSpec;
-  active: { spec: SeriesSpec; values: Float64Array }[];
-  scaleKeys: AxisKey[];
-  ranges: Partial<Record<AxisKey, [number, number]>>;
+type LaneData = {
+  spec: LaneSpec;
+  series: SeriesSpec;
+  values: Float64Array;
+  axis: AxisKey;
+  range: [number, number];
+  label: string;
+  unit: string;
 };
 
 type Built = {
   x: Float64Array;
   elapsed: Float64Array;
-  panels: PanelData[];
-  readout: { key: string; label: string; unit: string; values: Float64Array }[];
+  lanes: LaneData[];
   stats: ChannelStat[];
   samples: number;
   distanceM: number;
   medianStepMs: number;
   maxStepMs: number;
-  /** Whole milliseconds between consecutive samples, for the step buttons. */
-  typicalStepMs: number;
 };
 
 function build(
@@ -95,63 +103,48 @@ function build(
     elapsed[i] = t[start + i] - lapStart;
   }
 
-  const panels: PanelData[] = [];
-  for (const spec of PANELS) {
-    if (hidden.has(spec.id)) continue;
+  // One lane per channel. A channel this payload does not carry is dropped, never drawn
+  // as a line of zeros.
+  const lanes: LaneData[] = [];
+  for (const lane of LANES) {
+    if (hidden.has(lane.key)) continue;
 
-    const active = spec.series
-      .map((key) => seriesByKey(key))
-      .filter((candidate): candidate is SeriesSpec =>
-        candidate ? (candidate.available?.(telemetry) ?? true) : false,
-      )
-      .map((candidate) => ({
-        spec: candidate,
-        values: candidate.values(telemetry, start, end),
-      }));
+    const spec = seriesByKey(lane.key);
+    if (!spec) continue;
+    if (!(spec.available?.(telemetry) ?? true)) continue;
 
-    if (active.length === 0) continue;
-
-    const scaleKeys = Array.from(new Set(active.map((entry) => entry.spec.axis)));
-    const ranges: Partial<Record<AxisKey, [number, number]>> = {};
-    for (const key of scaleKeys) {
-      const axis = AXES[key];
-      ranges[key] = typeof axis.range === "function" ? axis.range(telemetry) : axis.range;
-    }
-
-    panels.push({ spec, active, scaleKeys, ranges });
+    const axis = AXES[spec.axis];
+    lanes.push({
+      spec: lane,
+      series: spec,
+      values: spec.values(telemetry, start, end),
+      axis: spec.axis,
+      range: typeof axis.range === "function" ? axis.range(telemetry) : axis.range,
+      label: spec.label,
+      unit: axis.label,
+    });
   }
-
-  const readout = panels.flatMap((panel) =>
-    panel.active.map((entry) => ({
-      key: entry.spec.key,
-      label: entry.spec.label,
-      unit: AXES[entry.spec.axis].label,
-      values: entry.values,
-    })),
-  );
 
   const stats = lapStats(
     telemetry,
     lap,
-    readout.map((entry) => entry.key),
+    lanes.map((lane) => lane.series.key),
   );
 
   return {
     x,
     elapsed,
-    panels,
-    readout,
+    lanes,
     stats: stats?.stats ?? [],
     samples: size,
     distanceM: stats?.distanceM ?? x[size - 1],
     medianStepMs: stats?.medianStepMs ?? 0,
     maxStepMs: stats?.maxStepMs ?? 0,
-    typicalStepMs: stats?.medianStepMs ?? 0,
   };
 }
 
-type PanelProps = {
-  panel: PanelData;
+type LaneProps = {
+  lane: LaneData;
   x: Float64Array;
   cursorIdx: number | null;
   showXAxis: boolean;
@@ -159,51 +152,54 @@ type PanelProps = {
   register: (id: string, plot: uPlot | null) => void;
 };
 
-function Panel({ panel, x, cursorIdx, showXAxis, onCursor, register }: PanelProps) {
+/**
+ * One channel, one lane.
+ *
+ * The channel name and its live value sit in the lane's own header rather than in a
+ * legend, so the eye can run down the left edge of the stack and read every channel at
+ * the cursor position without moving.
+ */
+function Lane({ lane, x, cursorIdx, showXAxis, onCursor, register }: LaneProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const container = ref.current;
     if (!container) return;
 
-    const scales: uPlot.Scales = { x: { time: false } };
-    for (const key of panel.scaleKeys) {
-      scales[key] = { range: panel.ranges[key] };
-    }
-
-    // The abscissa is drawn once, on the bottom panel; the panels above keep the grid so
-    // a distance can still be read off any of them.
-    const xAxis: uPlot.Axis = {
-      ...AXIS_STYLE,
-      grid: { stroke: "#eef0f1" },
-      values: showXAxis
-        ? (_self, ticks) => ticks.map((tick) => `${(tick / 1000).toFixed(2)} km`)
-        : () => [],
-      ticks: { show: showXAxis },
-      size: showXAxis ? undefined : 0,
+    const scales: uPlot.Scales = {
+      x: { time: false },
+      [lane.axis]: { range: lane.range },
     };
 
+    // The abscissa is labelled once, at the bottom of the stack; every lane above keeps
+    // the grid so a distance can still be read off any of them.
     const axes: uPlot.Axis[] = [
-      xAxis,
-      ...panel.scaleKeys.map((key) => ({
+      {
         ...AXIS_STYLE,
-        scale: key,
-        side: AXES[key].side,
-        grid: { show: false },
-        size: 46,
-        label: AXES[key].label,
+        grid: { stroke: "#eef0f1" },
+        ticks: { stroke: "#d5d8db", show: showXAxis },
+        values: showXAxis
+          ? (_self, ticks) => ticks.map((tick) => `${(tick / 1000).toFixed(2)} km`)
+          : () => [],
+        size: showXAxis ? undefined : 0,
+      },
+      {
+        ...AXIS_STYLE,
+        scale: lane.axis,
+        side: 0,
+        grid: { stroke: "#f4f5f6" },
+        size: 54,
+        label: lane.unit,
         labelSize: 18,
         labelFont: "9px 'IBM Plex Mono', ui-monospace, monospace",
-      })),
+      },
     ];
-
-    const data: uPlot.AlignedData = [x, ...panel.active.map((entry) => entry.values)];
 
     const plot = new uPlot(
       {
         width: container.clientWidth,
-        height: panel.spec.height,
-        padding: [8, 12, showXAxis ? 0 : -6, 0],
+        height: lane.spec.height,
+        padding: [6, 12, showXAxis ? 0 : -6, 0],
         cursor: {
           show: true,
           x: true,
@@ -216,15 +212,15 @@ function Panel({ panel, x, cursorIdx, showXAxis, onCursor, register }: PanelProp
         axes,
         series: [
           {},
-          ...panel.active.map((entry) => ({
-            label: entry.spec.label,
-            scale: entry.spec.axis,
-            stroke: entry.spec.color,
-            width: entry.spec.width ?? 1.4,
-            dash: entry.spec.dash,
-            fill: entry.spec.fill,
+          {
+            label: lane.label,
+            scale: lane.axis,
+            stroke: lane.series.color,
+            width: lane.series.width ?? 1.2,
+            dash: lane.series.dash,
+            fill: lane.series.fill,
             points: { show: false },
-          })),
+          },
         ],
         hooks: {
           setCursor: [
@@ -235,54 +231,48 @@ function Panel({ panel, x, cursorIdx, showXAxis, onCursor, register }: PanelProp
           ],
         },
       },
-      data,
+      [x, lane.values] as uPlot.AlignedData,
       container,
     );
 
-    register(panel.spec.id, plot);
+    register(lane.spec.key, plot);
 
     const onResize = () => {
-      plot.setSize({ width: container.clientWidth, height: panel.spec.height });
+      plot.setSize({ width: container.clientWidth, height: lane.spec.height });
     };
     window.addEventListener("resize", onResize);
 
     return () => {
       window.removeEventListener("resize", onResize);
-      register(panel.spec.id, null);
+      register(lane.spec.key, null);
       plot.destroy();
     };
-  }, [panel, x, showXAxis, onCursor, register]);
+  }, [lane, x, showXAxis, onCursor, register]);
+
+  const value =
+    cursorIdx !== null && cursorIdx < lane.values.length ? lane.values[cursorIdx] : null;
 
   return (
     <section className="border-t border-line first:border-t-0">
-      <header className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-3 pb-1 pt-2">
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted">
-          {panel.spec.title}
+      <header className="flex items-baseline gap-2 px-3 pt-1.5 font-mono text-[10px]">
+        <span
+          className="inline-block h-[3px] w-4 translate-y-[-2px]"
+          style={{ backgroundColor: lane.series.color }}
+        />
+        <h3 className="w-24 shrink-0 uppercase tracking-[0.14em] text-muted">
+          {lane.label}
+          {lane.series.kind === "derived" && <span>*</span>}
         </h3>
-        {panel.active.map((entry) => {
-          const value =
-            cursorIdx !== null && cursorIdx < entry.values.length
-              ? entry.values[cursorIdx]
-              : null;
-          return (
-            <span
-              key={entry.spec.key}
-              className="flex items-baseline gap-1.5 font-mono text-[10px]"
-              title={entry.spec.note}
-            >
-              <span
-                className="inline-block h-[3px] w-4 translate-y-[-2px]"
-                style={{ backgroundColor: entry.spec.color }}
-              />
-              <span className="text-muted">{entry.spec.label}</span>
-              <span className="tabular-nums text-ink">
-                {value === null || !Number.isFinite(value) ? "—" : value.toFixed(1)}
-              </span>
-              <span className="text-muted">{AXES[entry.spec.axis].label}</span>
-              {entry.spec.kind === "derived" && <span className="text-muted">*</span>}
-            </span>
-          );
-        })}
+        <span className="w-16 shrink-0 text-right text-[11px] tabular-nums text-ink">
+          {value === null || !Number.isFinite(value) ? "—" : value.toFixed(1)}
+        </span>
+        <span className="text-muted">{lane.unit}</span>
+        <span
+          className="ml-auto hidden truncate text-[9px] text-muted sm:block"
+          title={lane.series.note}
+        >
+          {lane.series.note}
+        </span>
       </header>
       <div ref={ref} className="w-full" />
     </section>
@@ -363,14 +353,14 @@ export function WorkbenchChart({ url, lap }: Props) {
       "sample",
       "distance_m",
       "elapsed_ms",
-      ...built.readout.map((entry) => `${entry.key}[${entry.unit}]`),
+      ...built.lanes.map((lane) => `${lane.series.key}[${lane.unit}]`),
     ];
     const row = [
       String(cursorIdx),
       built.x[cursorIdx].toFixed(2),
       built.elapsed[cursorIdx].toFixed(0),
-      ...built.readout.map((entry) => {
-        const value = entry.values[cursorIdx];
+      ...built.lanes.map((lane) => {
+        const value = lane.values[cursorIdx];
         return Number.isFinite(value) ? value.toFixed(4) : "NaN";
       }),
     ];
@@ -383,11 +373,11 @@ export function WorkbenchChart({ url, lap }: Props) {
     }
   }, [built, cursorIdx]);
 
-  const togglePanel = (id: string) => {
+  const toggleLane = (key: string) => {
     setHidden((current) => {
       const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else if (next.size < PANELS.length - 1) next.add(id);
+      if (next.has(key)) next.delete(key);
+      else if (next.size < LANES.length - 1) next.add(key);
       return next;
     });
   };
@@ -474,39 +464,46 @@ export function WorkbenchChart({ url, lap }: Props) {
         </dl>
       </div>
 
-      {/* Panel switches — the stack is never emptied. */}
-      <div className="flex flex-wrap gap-1.5 border-b border-line bg-canvas px-3 py-2">
-        {PANELS.map((panel) => {
-          const on = !hidden.has(panel.id);
+      {/* Channel switches — one per lane; the stack is never emptied. */}
+      <div className="flex flex-wrap gap-1 border-b border-line bg-canvas px-3 py-1.5">
+        {LANES.map((lane) => {
+          const spec = seriesByKey(lane.key);
+          const available = spec
+            ? telemetry
+              ? (spec.available?.(telemetry) ?? true)
+              : false
+            : false;
+          const on = !hidden.has(lane.key);
           return (
             <button
-              key={panel.id}
+              key={lane.key}
               type="button"
-              onClick={() => togglePanel(panel.id)}
-              disabled={on && hidden.size >= PANELS.length - 1}
-              className={`rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest transition-colors disabled:opacity-40 ${
+              onClick={() => toggleLane(lane.key)}
+              disabled={!available || (on && hidden.size >= LANES.length - 1)}
+              title={spec?.note}
+              className={`border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.12em] transition-colors disabled:opacity-30 ${
                 on
                   ? "border-accent-300 bg-paper text-ink"
-                  : "border-line bg-canvas text-muted hover:text-ink"
+                  : "border-line text-muted hover:text-ink"
               }`}
             >
-              {panel.title}
+              {spec?.label ?? lane.key}
             </button>
           );
         })}
-        <span className="ml-auto font-mono text-[10px] text-muted">
+        <span className="ml-auto font-mono text-[9px] text-muted">
           ← / → step one sample · shift 10
         </span>
       </div>
 
       <div className="bg-paper">
-        {built.panels.map((panel, index) => (
-          <Panel
-            key={panel.spec.id}
-            panel={panel}
+        {built.lanes.map((lane, index) => (
+          <Lane
+            key={lane.spec.key}
+            lane={lane}
             x={built.x}
             cursorIdx={cursorIdx}
-            showXAxis={index === built.panels.length - 1}
+            showXAxis={index === built.lanes.length - 1}
             onCursor={onCursor}
             register={register}
           />
