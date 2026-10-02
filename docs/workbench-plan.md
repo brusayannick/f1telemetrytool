@@ -356,9 +356,11 @@ Standard (Bremsbeginn → Kurvenausgang; die Geraden dazwischen werden eigene
 Geradensegmente), das feste 100-m-Raster ist eine umschaltbare Vergleichsansicht für
 streckenübergreifende Betrachtung. Je Segment die Zeit, sortierbar, als Balken über der
 Distanzachse.
-**Abnahme:** Summe der Segmentzeiten = Rundenzeit ± 1 Sample; Segmente lückenlos und
-überlappungsfrei; im Rastermodus teilen sich Kurven, die enger als ein Rasterfeld
-beieinander liegen, ein Segment — das ist sichtbar so benannt.
+**Abnahme:** Summe der Segmentzeiten = **Telemetrie-Span** (nicht die offizielle Rundenzeit
+— siehe B3), exakt; Segmente lückenlos und überlappungsfrei; im Rastermodus teilen sich
+Kurven, die enger als ein Rasterfeld beieinander liegen, ein Segment — das ist sichtbar so
+benannt. **Stand:** kurvenbasierter Modus, Balken und sortierbare Zeitspalte umgesetzt und
+verifiziert; der 100-m-Rastermodus ist offen.
 
 ### F14 — Kurven-Phasenzerlegung
 **Zweck:** eine Kurve ist drei Manöver, nicht eines.
@@ -854,9 +856,9 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 **Stand:** A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane pro Kanal
 (12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
 Kanal-Statistik, Lane-Schalter. B: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit
-Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F16** (Rangliste der
-Zeitverluste) und **F15** (Δt-Zerlegung mit ausgewiesenem Rest) umgesetzt und verifiziert;
-**F13** (Balken) und **F18** (Matrix) offen. D bis K offen.
+Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F13** (Segmentzeiten mit
+Balken und sortierbarer Zeitspalte), **F15** (Δt-Zerlegung) und **F16** (Rangliste der
+Zeitverluste) umgesetzt und verifiziert; **F18** (Matrix) offen — siehe B16. D bis K offen.
 
 Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; **B15 ist in der Ursache
 behoben** (das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust — ein Defekt in F8);
@@ -1133,6 +1135,25 @@ T7 war Dritter und ist jetzt nirgends, T8 und T13 sind die Verlustkurven.
 werden. **Status: Ursache behoben**; die Restdifferenz bleibt sichtbar und erklärt. Eine
 weitere Verbesserung wäre, beide Seiten auf dieselbe Methode zu bringen.
 
+### B16 — Der Plan schiebt die Multi-Runden-Auswertung hinter ihre eigene Voraussetzung
+**Messung:** Vier Features aus C und D brauchen die Segment- oder Kurvenwerte **aller**
+Runden eines Fahrers: F18 (Segment-Matrix), F19 (Scheitel-Konsistenz), F21
+(Rundenzeit-Streuung je Sektor) und F22 (Ausreißer-Scatter). Im Browser heißt das, jede
+Telemetriedatei zu laden: 20 Runden × ~480 KiB ≈ **9,6 MiB pro Fahrer** (aus den gespeicherten
+Dateigrößen gerechnet). Die Reihenfolge des Plans stellt Arbeitsstrom I — die serverseitige
+Aggregation — dagegen **ans Ende**, nach C, D und H.
+**Konsequenz:** Die vier Features sind bis dahin nicht sinnvoll baubar, und I kann nicht
+rechnen, was C und D nicht geliefert haben. Die Reihenfolge ist damit zirkulär: C und D
+brauchen die Datenbasis, die I bereitstellen soll.
+**Optionen:**
+- **(a) I vorziehen** — die fünf Kennzahl-Tabellen zuerst, dann lesen F18–F22 gespeicherte
+  Zahlen statt Telemetrie. Teurer jetzt, richtig danach, und es ist ohnehin die
+  Plan-Entscheidung #4.
+- **(b) Clientseitig mit Runden-Obergrenze** — z. B. die acht schnellsten gültigen Runden,
+  mit der Grenze sichtbar im UI. Billiger jetzt, aber jede Zelle muss die Grenze nennen,
+  sonst behauptet die Matrix eine Vollständigkeit, die sie nicht hat.
+**Status: offen** — braucht eine Entscheidung, keine Messung.
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1148,3 +1169,4 @@ weitere Verbesserung wäre, beide Seiten auf dieselbe Methode zu bringen.
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
+| B16 | offen — die Reihenfolge C/D vor I ist zirkulär; Entscheidung nötig: I vorziehen oder Runden-Obergrenze |
