@@ -1216,10 +1216,12 @@ Zerlegung.
 **Behebung:** Die Matrix prüft jetzt zusätzlich, ob der Scheitel eines Kurvensegments
 **innerhalb** seines eigenen Bereichs liegt. Ist er es nicht, schreibt die Zelle `±` mit
 Begründung statt einer Zahl. Die Bereichsdrift-Prüfung (±200 m) bleibt daneben bestehen.
-**Status: Ursache und Restwert erklärt** — die großen Werte sind keine Fahrzeit und werden
-als `±` markiert. **Nicht** behoben ist Weg 2, der absorbierende Nachbar: er ist im
-Segment allein nicht erkennbar. Der nächste Schritt dafür wäre, ein absorbiertes Segment
-ald Nicht-Messung auszuweisen statt es stillschweigend zu vergrößern.
+**Status: erledigt.** Auch **Weg 2 ist behoben**: die Zerlegung führt jetzt `absorbed:
+string[]` an jedem Segment — die Labels der Kurven, deren Gebiet dieses Segment geschluckt
+hat. Die Matrix schreibt dafür `±` und nennt die verschluckte Kurve beim Namen. Der
+absorbierende Nachbar ist damit nicht mehr unsichtbar: das Segment sagt selbst, dass es
+mehr ist als die Kurve, nach der es heißt. Weg 3 (`cornerPerformance`-Drop) bleibt als
+Lücke in der Labelfolge sichtbar und wird mit B4 geführt, weil er dieselbe Ursache hat.
 
 ### Was davon jetzt behebbar ist
 

@@ -328,10 +328,13 @@ export function SegmentMatrix({
                       (segment.apexM !== null &&
                         segment.apexM >= segment.fromM &&
                         segment.apexM <= segment.toM);
-                    const driftReason = apexInside
-                      ? "different stretch"
-                      : "its apex lies outside it — the stretch belongs to a neighbour";
-                    const comparable = rangeDrift <= 200 && apexInside;
+                    const driftReason = segment.absorbed.length > 0
+                      ? `it also contains ${segment.absorbed.join(", ")}, whose own time this is not`
+                      : apexInside
+                        ? "different stretch"
+                        : "its apex lies outside it — the stretch belongs to a neighbour";
+                    const comparable =
+                      rangeDrift <= 200 && apexInside && segment.absorbed.length === 0;
 
                     const span = scaleByLabel.get(column.label) ?? 1;
                     const intensity =

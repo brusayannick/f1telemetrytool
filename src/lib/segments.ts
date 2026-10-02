@@ -32,6 +32,20 @@ export type LapSegment = {
   exitM: number | null;
   /** False when the lap could not confirm this corner (see `cornerPerformance`). */
   verified: boolean;
+  /**
+   * Labels of corners whose territory this segment swallowed.
+   *
+   * A corner is dropped when its exit resolves to a sample at or behind the cursor: two
+   * corners sharing one full-throttle point (Abu Dhabi's T6/T7 are 63 m apart), or two
+   * markers in the last 150 m both clamping to the trace end. Its braking zone and apex
+   * then sit inside this — the previously emitted — segment, which keeps `verified: true`
+   * and would otherwise read as an ordinary corner. Measured consequence: a matrix column
+   * showed a 2,082 ms "loss" that does not exist in the telemetry (B17).
+   *
+   * Any consumer comparing segments across laps must treat a non-empty list as "this is
+   * more than the corner it is named after", not as a time for that corner.
+   */
+  absorbed: string[];
 };
 
 /**
@@ -108,6 +122,7 @@ export function buildSegments(
       brakeFromM: null,
       exitM: null,
       verified: true,
+      absorbed: [],
     });
   };
 
@@ -120,7 +135,14 @@ export function buildSegments(
     const to = Math.min(endM, Math.max(from, performance.exitDist));
 
     if (from > cursor) pushStraight(cursor, from, performance.label);
-    if (to <= from) continue;
+    if (to <= from) {
+      // The corner's whole window lies at or behind the cursor, so the segment that was
+      // already emitted contains it. Record that instead of letting the host segment look
+      // like an ordinary corner of its own.
+      const host = segments[segments.length - 1];
+      if (host) host.absorbed.push(performance.label);
+      continue;
+    }
 
     segments.push({
       label: performance.label,
@@ -133,6 +155,7 @@ export function buildSegments(
       brakeFromM: performance.brakeDist,
       exitM: performance.exitDist,
       verified: performance.verified,
+      absorbed: [],
     });
 
     cursor = to;
