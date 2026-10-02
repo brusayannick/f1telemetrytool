@@ -358,6 +358,8 @@ export function WorkbenchChart({ url, lap, corners = null }: Props) {
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  /** Segment table order. Distance is the lap order; time answers "where did it go". */
+  const [segmentSort, setSegmentSort] = useState<"distance" | "time">("distance");
   const [cursorIdx, setCursorIdx] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -437,6 +439,21 @@ export function WorkbenchChart({ url, lap, corners = null }: Props) {
       setCopied(false);
     }
   }, [built, cursorIdx]);
+
+  // Distance is the order the driver drove; time answers where the lap went. Sorting only
+  // reorders the rows — the sum in the footer is order-independent, so the tiling check
+  // stays valid either way.
+  const orderedSegments = useMemo(() => {
+    if (!built) return [];
+    const rows = [...built.segments];
+    if (segmentSort === "time") rows.sort((left, right) => right.timeMs - left.timeMs);
+    return rows;
+  }, [built, segmentSort]);
+
+  const longestSegmentMs = useMemo(
+    () => orderedSegments.reduce((max, segment) => Math.max(max, segment.timeMs), 0),
+    [orderedSegments],
+  );
 
   const toggleLane = (key: string) => {
     setHidden((current) => {
@@ -636,14 +653,27 @@ export function WorkbenchChart({ url, lap, corners = null }: Props) {
                 <th className="px-3 py-2 text-right font-normal">from</th>
                 <th className="px-3 py-2 text-right font-normal">to</th>
                 <th className="px-3 py-2 text-right font-normal">len</th>
-                <th className="px-3 py-2 text-right font-normal">time</th>
+                <th className="px-3 py-2 text-right font-normal">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSegmentSort((current) =>
+                        current === "distance" ? "time" : "distance",
+                      )
+                    }
+                    title="Sort by time instead of by distance"
+                    className="uppercase tracking-[0.14em] transition-colors hover:text-ink"
+                  >
+                    time {segmentSort === "time" ? "↓" : "·"}
+                  </button>
+                </th>
                 <th className="px-3 py-2 text-right font-normal">apex</th>
                 <th className="px-3 py-2 text-right font-normal">brake from</th>
                 <th className="px-3 py-2 text-right font-normal">exit</th>
               </tr>
             </thead>
             <tbody>
-              {built.segments.map((segment) => (
+              {orderedSegments.map((segment) => (
                 <tr
                   key={`${segment.label}-${segment.fromM}`}
                   className="border-b border-line/60"
@@ -664,7 +694,21 @@ export function WorkbenchChart({ url, lap, corners = null }: Props) {
                   <td className="px-3 py-1.5 text-right text-muted">
                     {(segment.toM - segment.fromM).toFixed(0)} m
                   </td>
-                  <td className="px-3 py-1.5 text-right">{segment.timeMs.toFixed(0)} ms</td>
+                  <td className="px-3 py-1.5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <span
+                        className="h-1.5 shrink-0 bg-accent-300"
+                        style={{
+                          width: `${
+                            longestSegmentMs > 0
+                              ? (segment.timeMs / longestSegmentMs) * 48
+                              : 0
+                          }px`,
+                        }}
+                      />
+                      <span className="tabular-nums">{segment.timeMs.toFixed(0)} ms</span>
+                    </div>
+                  </td>
                   <td className="px-3 py-1.5 text-right">
                     {segment.apexSpeed === null
                       ? "—"

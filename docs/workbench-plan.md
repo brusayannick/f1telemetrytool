@@ -858,8 +858,9 @@ Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F16** (Rangliste
 Zeitverluste) und **F15** (Δt-Zerlegung mit ausgewiesenem Rest) umgesetzt und verifiziert;
 **F13** (Balken) und **F18** (Matrix) offen. D bis K offen.
 
-Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; offen sind B4 (bewusst),
-B8 (zurückgestellt auf K), B14 (Konsequenz für I) und B15 (Verbesserung von F15).
+Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; **B15 ist in der Ursache
+behoben** (das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust — ein Defekt in F8);
+offen sind B4 (bewusst), B8 (zurückgestellt auf K) und B14 (Konsequenz für I).
 
 **Befund aus der B-Validierung (vier Strecken):** Die Abnahme „Σ Segmentzeiten = Rundenzeit"
 war falsch formuliert. Das Telemetrie-Fenster ist um 87–307 ms kürzer als die offizielle
