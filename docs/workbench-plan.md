@@ -853,10 +853,13 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 
 **Stand:** A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane pro Kanal
 (12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
-Kanal-Statistik, Lane-Schalter. B begonnen: gemeinsame Rumpf-Zerlegung
-(`src/lib/segments.ts`) mit Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle.
-C bis K offen. Befunde in Abschnitt 11; **B1–B3, B5–B7, B10–B13 erledigt**, offen sind
-B4 (bewusst), B8 (zurückgestellt) und B14 (Konsequenz für Arbeitsstrom I).
+Kanal-Statistik, Lane-Schalter. B: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit
+Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F16** (Rangliste der
+Zeitverluste) und **F15** (Δt-Zerlegung mit ausgewiesenem Rest) umgesetzt und verifiziert;
+**F13** (Balken) und **F18** (Matrix) offen. D bis K offen.
+
+Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; offen sind B4 (bewusst),
+B8 (zurückgestellt auf K), B14 (Konsequenz für I) und B15 (Verbesserung von F15).
 
 **Befund aus der B-Validierung (vier Strecken):** Die Abnahme „Σ Segmentzeiten = Rundenzeit"
 war falsch formuliert. Das Telemetrie-Fenster ist um 87–307 ms kürzer als die offizielle
@@ -1095,6 +1098,26 @@ workers" mit beiden Watchern, vollständige Befehlsliste, R2 und seine Variablen
 Kanal-Liste, und der Hinweis, dass die Workflows nicht ingestieren können.
 **Status: erledigt.**
 
+### B15 — Die Δt-Zerlegung summiert exakt, aber der Rest dominiert
+**Messung:** F15 auf Abu Dhabi Q (VER gegen NOR), Rangliste:
+
+| Kurve | Δt | Bremsen | Scheitel | Ausgang | nicht zugeordnet | Summe |
+|---|---|---|---|---|---|---|
+| T6 | +0,628 s | +0,345 | −0,006 | −0,101 | +0,390 | **0,628** |
+| T12 | +0,548 s | +0,270 | −0,049 | −0,140 | +0,467 | **0,548** |
+| T7 | +0,532 s | +0,431 | −0,117 | −0,076 | +0,293 | **0,531** |
+
+Die Abnahme (`Σ Beiträge + nicht zugeordnet = gemessenes Δt`, Toleranz 1 Sample) ist
+erfüllt — die Summe stimmt auf 1 ms. Aber **55–85 % des Verlusts liegen in „nicht
+zugeordnet"**: die drei Fenster decken nur die Spanne Bremsbeginn → Ausgang ab, während
+das gemessene Kurven-Δt eine längere Spanne umfasst (Anlauf vor der Bremszone und
+Auslauf danach).
+**Konsequenz:** Das Modell ist korrekt, aber wenig aussagekräftig — der Rest ist die
+größte Einzelzeile. Die Verbesserung ist, Anlauf und Auslauf als **eigene benannte
+Beiträge** zu führen statt sie in „nicht zugeordnet" zu sammeln; dann bleibt als Rest nur,
+was wirklich keiner Phase zugeordnet werden kann. **Status: offen** — Verbesserung von F15,
+kein Fehler.
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1109,3 +1132,4 @@ Kanal-Liste, und der Hinweis, dass die Workflows nicht ingestieren können.
 | B8 | zurückgestellt — echte Auth ist Arbeitsstrom K, kein Fix am Rand |
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
+| B15 | offen — F15 verbessern: Anlauf und Auslauf als eigene Beiträge statt in „nicht zugeordnet" |

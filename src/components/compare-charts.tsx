@@ -23,6 +23,7 @@ import {
   type Corner,
   type CornerDelta,
 } from "@/lib/corners";
+import { cornerBreakdown, type CornerBreakdown } from "@/lib/corner-breakdown";
 
 export type LapRef = {
   lapNumber: number;
@@ -93,6 +94,8 @@ type Built = {
   corners: CornerDelta[] | null;
   /** False when the rows are detected braking zones, not official corner numbers. */
   cornersFromDatabase: boolean;
+  /** F15: where each corner's measured delta happened. A model, never rescaled. */
+  breakdown: CornerBreakdown[];
 };
 
 function medianStep(times: Float64Array): number {
@@ -243,6 +246,18 @@ function build(a: LapSeries, b: LapSeries, corners: Corner[] | null): Built | nu
     biggestLossAtM,
     corners: cornerMetrics,
     cornersFromDatabase: fromDatabase,
+    // Built from the corner deltas the table already computed, so the decomposition and the
+    // table share one idea of "the corner delta" and cannot disagree about the total.
+    breakdown: cornerBreakdown(
+      a,
+      b,
+      groups,
+      new Map<string, number>(
+        (cornerMetrics ?? [])
+          .filter((corner) => corner.timeDeltaMs !== null)
+          .map((corner) => [corner.label, corner.timeDeltaMs as number]),
+      ),
+    ),
   };
 }
 
@@ -297,6 +312,13 @@ export function CompareCharts({
     () => (built?.corners ? rankLosses(built.corners, 3) : []),
     [built],
   );
+  const breakdownByLabel = useMemo(
+    () => new Map((built?.breakdown ?? []).map((entry) => [entry.label, entry])),
+    [built],
+  );
+
+  /** Signed seconds, so a contribution that gained time is distinguishable from one that lost it. */
+  const signedSeconds = (ms: number) => `${ms >= 0 ? "+" : "−"}${seconds(Math.abs(ms))}`;
 
   const position = useMemo(
     () => (telemetryA ? lapPosition(telemetryA, a.lap) : null),
@@ -617,25 +639,63 @@ export function CompareCharts({
             Where the lap went — {b.label} losing, worst first
           </p>
           <ol className="mt-2 space-y-1">
-            {ranking.map((row, index) => (
-              <li key={row.label} className="flex items-baseline gap-3 font-mono text-xs">
-                <span className="w-4 text-muted tabular-nums">{index + 1}</span>
-                <span className={`w-12 ${row.verified ? "" : "text-warning"}`}>
-                  {row.label}
-                  {row.verified ? "" : " ?"}
-                </span>
-                <span className="w-16 text-right tabular-nums text-danger">
-                  +{seconds(row.timeMs)}
-                </span>
-                <span className="flex-1 text-muted">{row.reason}</span>
-              </li>
-            ))}
+            {ranking.map((row, index) => {
+              const entry = breakdownByLabel.get(row.label);
+              return (
+                <li key={row.label} className="font-mono text-xs">
+                  <div className="flex items-baseline gap-3">
+                    <span className="w-4 text-muted tabular-nums">{index + 1}</span>
+                    <span className={`w-12 ${row.verified ? "" : "text-warning"}`}>
+                      {row.label}
+                      {row.verified ? "" : " ?"}
+                    </span>
+                    <span className="w-16 text-right tabular-nums text-danger">
+                      +{seconds(row.timeMs)}
+                    </span>
+                    <span className="flex-1 text-muted">{row.reason}</span>
+                  </div>
+                  {entry ? (
+                    <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 pl-7 text-[10px] text-muted">
+                      <span className="uppercase tracking-[0.14em]">breakdown · model</span>
+                      <span>
+                        braking{" "}
+                        <span className="tabular-nums text-ink">
+                          {signedSeconds(entry.brakeMs)}
+                        </span>
+                      </span>
+                      <span>
+                        apex{" "}
+                        <span className="tabular-nums text-ink">
+                          {signedSeconds(entry.apexMs)}
+                        </span>
+                      </span>
+                      <span>
+                        exit{" "}
+                        <span className="tabular-nums text-ink">
+                          {signedSeconds(entry.exitMs)}
+                        </span>
+                      </span>
+                      <span>
+                        not attributed{" "}
+                        <span className="tabular-nums text-warning">
+                          {signedSeconds(entry.otherMs)}
+                        </span>
+                      </span>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ol>
           <p className="mt-2 text-[10px] leading-relaxed text-muted">
             Ranked from the corner rows above, so the two cannot disagree. Each line names
             only causes present in the measured fields; where none stands out it says so
             instead of inventing one. A row marked ? had no braking in its stretch and is
-            not a measurement.
+            not a measurement. The breakdown is a <strong>model</strong>: the three phases
+            are the time difference actually accumulated inside three windows, and
+            everything they do not cover — the run in before braking and the run out after
+            the exit — is reported as “not attributed” rather than folded into them. A large
+            remainder is a statement about the model, not about the driver.
           </p>
         </div>
       ) : null}
