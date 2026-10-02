@@ -134,7 +134,13 @@ export function buildSegments(
   return segments;
 }
 
-/** Total of the segment times — must equal the lap time for the decomposition to be sound. */
+/**
+ * Total of the segment times.
+ *
+ * This must equal the telemetry span the segments tile — NOT the official lap time. The
+ * telemetry window is short by up to a sample (measured 87–307 ms across four circuits),
+ * so a correct decomposition still lands short of the timing figure.
+ */
 export function segmentTotalMs(segments: LapSegment[]): number {
   let total = 0;
   for (const segment of segments) total += segment.timeMs;

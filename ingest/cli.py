@@ -467,6 +467,23 @@ def cmd_calendar(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
+def _source_digest() -> str:
+    """Digest of the ingest package's own source files.
+
+    A running Python process holds its modules in memory: editing a file does not reach
+    it. That has already produced payloads missing newly added channels, with nothing in
+    the logs to show for it. The worker therefore records the digest it started with and
+    re-checks the files each poll, so a stale process is visible instead of silent.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    for path in sorted(Path(__file__).parent.glob("*.py")):
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     """Poll Convex for telemetry requests from the web UI and ingest them.
 
@@ -477,15 +494,28 @@ def cmd_watch(args: argparse.Namespace) -> int:
     client = ConvexIngestClient()
     store = build_blob_store(client)
     target = os.environ.get("CONVEX_URL", "unknown")
+    started_with = _source_digest()
+    warned_stale = False
 
     print(
         f"[{datetime.now():%Y-%m-%d %H:%M:%S}] watching {target} for requests every "
-        f"{args.interval:.0f}s (Ctrl-C to stop)"
+        f"{args.interval:.0f}s (Ctrl-C to stop) · code {started_with}"
     )
     while True:
+        # Has the source moved on since this process loaded its modules?
+        code_stale = _source_digest() != started_with
+        if code_stale and not warned_stale:
+            warned_stale = True
+            print(
+                f"[{datetime.now():%Y-%m-%d %H:%M:%S}] WARNING: ingest source changed "
+                "since this worker started — it is still running the old code. "
+                "Restart it to pick the change up.",
+                file=sys.stderr,
+            )
+
         # Never let a transient network failure kill the daemon: log it and retry.
         try:
-            client.heartbeat(target)
+            client.heartbeat(target, code_version=started_with, code_stale=code_stale)
         except Exception as err:  # noqa: BLE001 - a worker must outlive a bad request
             print(
                 f"[{datetime.now():%Y-%m-%d %H:%M:%S}] heartbeat failed: "

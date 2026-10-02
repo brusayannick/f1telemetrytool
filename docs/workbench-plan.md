@@ -275,10 +275,14 @@ abschalten.
 ### F5 — Datenqualität sichtbar
 **Zweck:** Fehler von Signalen unterscheiden.
 **Verhalten:** je Lane ein Qualitätsindikator: Anzahl Lücken, größter Sample-Abstand,
-Spitzenausreißer (z. B. Beschleunigung −53 m/s² bei 2544 m). Ausreißer sind markierbar und
-in der Statistik als Ausreißer gekennzeichnet.
-**Abnahme:** der bekannte Speed-Glitch bei Abu Dhabi Q, 2544 m ist in der Lane sichtbar
-und in der Statistik benannt.
+Spitzenausreißer. Ausreißer sind markierbar und in der Statistik als Ausreißer
+gekennzeichnet.
+**Abnahme:** der verifizierte Feed-Artefakt (Auto 14, Abu Dhabi Q Runde 8: Bremsduty 1.00
+über zwei Segmente à ~520 m bei normaler Rundenzeit und normalem Speed-Profil) ist sichtbar
+und benannt.
+**Nicht als Ausreißer zählen:** die Beschleunigungsspitze −59 m/s² (−6,0 g) bei 2532 m in
+Abu Dhabi Q Runde 17. Das ist eine echte Vollbremsung — Bremse 100, Gas 100 → 0,
+331 → 164 km/h; F1 bremst mit 5–6 g. Siehe Befund B1.
 
 ### F6 — Kurven-Annotation
 **Zweck:** „Kurve 9" statt „bei 3.2 km".
@@ -804,10 +808,20 @@ Bündel lädt, sieht danach genau, welche Werte gesetzt wurden.
 
 ### 8.3 Grenzen der Daten, die im UI stehen müssen
 
-- Abtastung ~7.3 Hz nominal, **unregelmäßig**: median 137 ms, max 1000 ms.
-- Position 0.1 m quantisiert, ~49 % der Samples interpoliert.
+- Abtastung ~7.3 Hz nominal, **unregelmäßig**: median 137 ms, max 1000 ms, beobachtetes
+  Minimum 43 ms.
+- Position 0.1 m quantisiert; **gemessen 51 % der Samples liegen exakt auf dem Raster, also
+  49 % interpoliert** (Abu Dhabi Q, Fahrer 1; `analysis/lateral_accel.py`). Kleinster
+  beobachteter Schritt 7 mm.
 - Alles, was schärfer als die Abtastung ist, ist nicht ablesbar — deshalb steht `Δs` und
   `max Δs` im Readout.
+- **Das Telemetrie-Fenster ist kürzer als die offizielle Rundenzeit** — gemessen 87 ms
+  (Abu Dhabi) bis 307 ms (Silverstone), also 1–2 Samples, je Strecke und Session
+  verschieden. Eine Runde lässt sich daher **nicht** aus der Telemetrie rekonstruieren. Der
+  Unterschied steht als „window" im UI und darf nie als Fahrzeit gelesen werden.
+- **Ableitungs-Extreme sind schema-abhängig**: dieselbe Runde ergibt −59,0 m/s² bei
+  Vorwärtsdifferenz auf rohen Samples und −53,3 m/s² im Kanal `accel`. Extreme aus
+  Ableitungen sind nur mit Angabe der Methode vergleichbar. Siehe Befund B2.
 
 ---
 
@@ -833,9 +847,11 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 | K | Betrieb und Sicherheit | Auth, Watcher-Dienst, Backfill, README | — |
 
 **Stand:** A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane pro Kanal
-(12), volle Breite, Cursor-Readout mit Schrittsteuerung, Kanal-Statistik, Lane-Schalter.
-B begonnen: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit Segmenten, Kurvenmarken
-in allen Lanes und Segmenttabelle. C bis K offen.
+(12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
+Kanal-Statistik, Lane-Schalter. B begonnen: gemeinsame Rumpf-Zerlegung
+(`src/lib/segments.ts`) mit Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle.
+C bis K offen. Befunde in Abschnitt 11; B1, B3, B5, B6, B7, B10, B11, B13 erledigt,
+B2, B4, B8, B12, B14 offen oder zurückgestellt.
 
 **Befund aus der B-Validierung (vier Strecken):** Die Abnahme „Σ Segmentzeiten = Rundenzeit"
 war falsch formuliert. Das Telemetrie-Fenster ist um 87–307 ms kürzer als die offizielle
@@ -942,3 +958,129 @@ Convex-Mutation rechnet die Tabellen und schreibt `metricVersion` mit.
 8. **Mobile** — Desktop-first; Vorschlag: kein eigenes Layout, nur ein Hinweis.
 9. **Anomalie-Overlay (F11)** — bleibt blockiert, bis der Verkehrsfilter steht. Es gehört
    in diese Phase, aber ans Ende: ein Score im UI liest sich als Autorität.
+
+---
+
+## 11. Befunde
+
+Alles, was in diesem Projekt gemessen wurde — auch die Fälle, in denen eine frühere Annahme
+falsch war. Jeder Befund nennt Messung, Konsequenz und Status.
+
+### B1 — Die Beschleunigungsspitze war echte Bremsung, kein Datenfehler
+**Frühere Annahme (falsch):** −53 m/s² bei 2544 m sei ein Glitch im Speed-Kanal.
+**Messung:** Abu Dhabi Q Runde 17, rohe Samples: 2502 m → 331 km/h, Bremse 0, Gas 100 %.
+Ab 2516 m Bremse 100, Gas fällt auf 0, Speed 331 → 164 km/h bis 2582 m. Minimum
+**−59,0 m/s² (−6,02 g)** bei 2532 m.
+**Konsequenz:** F1 bremst mit 5–6 g — das ist eine Vollbremsung. F5 wurde korrigiert; als
+Datenqualitäts-Beispiel dient jetzt der verifizierte Bremskanal-Artefakt.
+**Status: erledigt** (Plan korrigiert).
+
+### B2 — Ableitungs-Extreme hängen am Differenzschema und an kleinen Δt
+**Messung:** dieselbe Runde ergibt −59,0 m/s² (Vorwärtsdifferenz, rohe Samples) gegen
+−53,28 m/s² (Kanal `accel`). Beobachtete Zeitschritte bis **43 ms** gegen Median 137 ms.
+Bei 43 ms erzeugt 1 km/h Quantisierung (0,28 m/s) **6,5 m/s²** Ableitungsrauschen, bei
+137 ms nur 2 m/s².
+**Konsequenz:** Der Parameter „Max. Zeitschritt" zielt auf das falsche Ende — gefährlich
+sind **kleine** Δt, nicht große. Nötig ist eine Mindest-Δt-Sperre oder ein breiterer
+Stencil. **Status: offen** (gehört zu F44 und zum `accel`-Kanal).
+
+### B3 — Das Telemetrie-Fenster ist kürzer als die offizielle Rundenzeit
+**Messung:** Σ Segmente gegen offizielle Rundenzeit: −87 ms (Abu Dhabi), −156 (Melbourne),
+−242 (Suzuka), −307 (Silverstone). Gegen den Telemetrie-Span: **Δ = 0 ms** auf allen vier.
+**Konsequenz:** Die Abnahme „Σ Segmentzeiten = Rundenzeit" war falsch formuliert. Richtig
+ist der Vergleich gegen den Span. Nicht behebbar, wird als „window" ausgewiesen.
+**Status: erledigt.**
+
+### B4 — Drei Kurven pro Strecke sind Marke, aber keine Messung
+**Messung:** messbar sind 13/16 (Abu Dhabi), 15/18 (Suzuka), 15/18 (Silverstone), 14/14
+(Melbourne). Ursache: die Edge-Minimum-Regel verwirft Kurven, deren Scheitel am Rand eines
+fallenden Profils liegt.
+**Konsequenz:** Marken werden für alle Kurven gezeichnet, die Tabelle bleibt streng, die
+Differenz steht im Footer. **Status: offen** — bewusst sichtbar, die Alternative wäre,
+fremde Scheitel zu berichten.
+
+### B5 — Kurvenmarken stimmen mit den Datenbanken überein
+**Messung:** 16 / 18 / 18 / 14 Marken im Browser gegen die Kurvenzahl der Events geprüft.
+**Status: erledigt.**
+
+### B6 — Sessions vor der Kanal-Erweiterung hatten nur 10 Lanes
+**Messung:** Abu Dhabi 12 Lanes, Suzuka/Silverstone/Melbourne 10. Diese Payloads wurden vor
+`ahead`/`rel` ingestiert.
+**Behebung:** Re-Ingest der drei Sessions. Geprüft: **12 Lanes auf allen vier**, `Gap ahead`
+und `Lap progress` vorhanden, Kachelung weiter Δ = 0 ms.
+**Status: erledigt.**
+
+### B7 — Ein laufender Watcher führt veralteten Code aus
+**Messung:** `cmd_watch` liest seine eigenen Quelldateien nie; der Heartbeat trägt nur die
+Deployment-URL. Zweimal beobachtet: Prod ingestierte ohne `ahead`/`rel`, weil der Prozess
+vor der Änderung gestartet war. Nach dem Neustart waren alle 13 Kanäle da.
+**Konsequenz:** Python hält Module im Speicher; Code-Änderungen erreichen einen laufenden
+Prozess nicht. Der Watcher muss seine eigene Version melden und die UI muss warnen.
+**Behebung:** Der Watcher hasht seine eigenen Quelldateien beim Start, prüft sie bei jedem
+Poll erneut und meldet `codeVersion` + `codeStale` im Heartbeat; die UI zeigt eine Warnung.
+Geprüft: frischer Start `stale=false`, nach einer Quelländerung `stale=true`, nach dem
+Zurücksetzen wieder `false` — bei konstanter Version `60cba5550cc4`.
+**Status: erledigt.**
+
+### B8 — `requestIngest` ist öffentlich und ungeschützt
+**Messung:** aus einem Skript ohne Authentifizierung erfolgreich aufgerufen. Einzige
+Schranke: `MAX_PENDING_REQUESTS = 5`.
+**Konsequenz:** Jeder mit der Prod-URL kann Ingestions auslösen. **Status: zurückgestellt**
+— echte Auth ist Arbeitsstrom K, kein Fix am Rand.
+
+### B9 — Prod hatte keine Daten
+**Messung:** Prod 2018–2025: 24/24/22/… Events, jeweils **0** vollständige Sessions; die
+deployte Seite zeigte nur Empty-States. Nach dem Smoke-Test: 1 Session (Abu Dhabi Q),
+20 Dateien, 13 Kanäle.
+**Konsequenz:** Betriebsstand, kein Fehler. **Status: teilweise erledigt.**
+
+### B10 — uPlot 1.6 hat kein `setScale` in `Sync`
+**Messung:** `Sync` bietet nur `key`, `setSeries`, `scales`, `match`, `filters`, `values`.
+**Konsequenz:** Achsen-Synchronisierung läuft über `scales: ["x", null]`.
+**Status: erledigt** — dokumentiert, damit es niemand erneut versucht.
+
+### B11 — Zwei Zahlen für denselben Messwert
+**Messung:** dieser Plan nannte ~49 % interpolierte Positions-Samples;
+`analysis/lateral_accel.py` gibt ~40 % als Erwartung aus. Nachgemessen: **51 % der Samples
+liegen exakt auf dem 0,1-m-Raster, also 49 % interpoliert** (kleinster Schritt 7 mm).
+**Konsequenz:** Die Plan-Zahl war richtig, die Erwartung im Skript nicht; der Hinweistext
+wurde auf den Messwert gesetzt. **Status: erledigt.**
+
+### B13 — Das Prüfskript ist nicht eigenständig lauffähig
+**Messung:** `python analysis/lateral_accel.py` bricht mit `ModuleNotFoundError: No module
+named 'ingest'` ab, weil das Skriptverzeichnis statt der Repo-Wurzel im Suchpfad landet.
+**Konsequenz:** Die Definition of Done verlangt für jede Ableitung ein Prüfskript; eines,
+das man nicht aufrufen kann, erfüllt das nicht.
+**Behebung:** `sys.path`-Bootstrap im Skript, damit es aus jedem Verzeichnis läuft.
+**Status: erledigt.**
+
+### B14 — Re-Ingest verschiebt abgeleitete Kennzahlen minimal
+**Messung:** Nach dem Re-Ingest derselben Sessions änderte sich die Zahl der messbaren
+Kurven bei zwei von vier Strecken um eins (Suzuka 15 → 14, Silverstone 15 → 14; Abu Dhabi
+und Melbourne unverändert). Die Segmentzahl änderte sich entsprechend (26 → 24, 27 → 26).
+Die Kurvenmarken blieben gleich (18 / 18), die Kachelung exakt.
+**Konsequenz:** Zweimal ingestierte Daten sind nicht bitgleich — FastF1s Merge kann Samples
+leicht anders legen, und eine Kurve kippt dann über die Edge-Minimum-Regel. Für den Plan
+heißt das: `metricVersion` allein genügt nicht, der **Telemetrie-Stand muss mitgezählt
+werden**, sonst sind zwei Kennzahl-Sätze nicht vergleichbar. **Status: offen** —
+Konsequenz für Arbeitsstrom I, nicht einzeln behebbar.
+
+### B12 — Dokumentation widerspricht dem Betrieb
+**Messung:** `ingest/README.md` beschreibt GitHub-Actions-Ingestion mit Ratenlimits
+(4 req/s, 500 req/h, ~10 Sessions/h) — wegen der IP-Sperre unmöglich. Die Root-README
+ebenso.
+**Status: offen** (Arbeitsstrom K).
+
+### Was davon jetzt behebbar ist
+
+| Befund | Aktion |
+|---|---|
+| B1, B3, B5, B10 | erledigt — Plan korrigiert, Code-Kommentar berichtigt |
+| B6 | erledigt — Re-Ingest, 12 Lanes auf allen vier Strecken geprüft |
+| B7 | erledigt — Watcher meldet Code-Version, Stale-Erkennung end-to-end geprüft |
+| B11 | erledigt — 51 % auf dem Raster gemessen, beide Stellen korrigiert |
+| B13 | erledigt — Prüfskript läuft eigenständig |
+| B2 | offen — Mindest-Δt-Sperre, gehört in F44 |
+| B4 | bewusst offen — die Alternative wäre, fremde Scheitel zu berichten |
+| B8, B12 | zurückgestellt auf Arbeitsstrom K |
+| B14 | offen — Konsequenz für Arbeitsstrom I (Telemetrie-Stand in den Fingerprint) |

@@ -26,7 +26,13 @@ Run: ``.venv/bin/python -m analysis.lateral_accel``
 from __future__ import annotations
 
 import gzip
+import os
 import sys
+
+# The repo root must be importable for `ingest.*` to resolve. Running this file directly
+# puts the script's own directory on the path instead, which is why it used to fail with
+# ModuleNotFoundError.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import msgpack
 import numpy as np
@@ -172,7 +178,7 @@ def report(channels: dict[str, np.ndarray], t0ms: int) -> None:
     exact = np.mean(np.abs((channels["x"][:n] * 1.0) - np.round(channels["x"][:n] * 1.0)) < 1e-4)
     steps = np.abs(np.diff(x))
     print(f"   x on the 0.1 m grid: {exact * 100:.0f}% of samples "
-          f"(100% = raw, ~40% = interpolated)   smallest step {steps[steps > 0].min() * 1000:.1f} mm")
+          f"(measured 51% raw, so 49% interpolated)   smallest step {steps[steps > 0].min() * 1000:.1f} mm")
 
     print("\n-- curvature vs. stencil width (m^2/m) ----------------------------------")
     print(f"   {'k':>2}  {'mean|k|':>9}  {'p99|k|':>9}  {'max|k|':>9}  {'closure/2pi':>11}  "

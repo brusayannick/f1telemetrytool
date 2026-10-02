@@ -239,6 +239,14 @@ export default function SessionPage() {
         )}
       </header>
 
+      {worker?.codeStale && (
+        <p className="mt-2 font-mono text-[10px] leading-relaxed text-warning">
+          the running worker is executing older code than the repository
+          {worker.codeVersion ? ` (started with ${worker.codeVersion})` : ""} — payloads it
+          ingests may lack channels added since. restart it to pick the change up.
+        </p>
+      )}
+
       <div className="mt-4 space-y-1.5">
         <div className="flex items-stretch border border-line bg-paper">
           <span className="w-14 shrink-0 border-r border-line px-2 py-1 font-mono text-[9px] uppercase tracking-[0.14em] text-muted">

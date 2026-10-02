@@ -208,10 +208,24 @@ class ConvexIngestClient:
         """Convex telemetry storage footprint (files + bytes)."""
         return self.query("telemetry:storageUsage", {})
 
-    def heartbeat(self, deployment: str) -> None:
+    def heartbeat(
+        self,
+        deployment: str,
+        *,
+        code_version: str | None = None,
+        code_stale: bool = False,
+    ) -> None:
         """Announce that a worker is watching this deployment.
 
         Stored in the deployment, so a deployment with no worker shows no heartbeat and
         the web UI can say so instead of waiting silently forever.
+
+        ``code_version`` is the digest of the worker's own source at start-up and
+        ``code_stale`` says whether those files have changed since. A running Python
+        process keeps its modules in memory, so editing a file never reaches it — this
+        has already produced payloads missing newly added channels.
         """
-        self._post("heartbeat", {"deployment": deployment})
+        payload: dict[str, Any] = {"deployment": deployment, "codeStale": code_stale}
+        if code_version:
+            payload["codeVersion"] = code_version
+        self._post("heartbeat", payload)

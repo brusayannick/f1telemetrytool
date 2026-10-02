@@ -11,14 +11,23 @@ const HEARTBEAT_KEY = "worker-heartbeat";
  * "the worker is fetching this" from "no worker is running at all".
  */
 export const recordHeartbeat = internalMutation({
-  args: { deployment: v.string() },
-  handler: async (ctx, { deployment }) => {
+  args: {
+    deployment: v.string(),
+    codeVersion: v.optional(v.string()),
+    codeStale: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { deployment, codeVersion, codeStale }) => {
     const existing = await ctx.db
       .query("syncState")
       .withIndex("by_key", (q) => q.eq("key", HEARTBEAT_KEY))
       .first();
 
-    const value = { atMs: Date.now(), deployment };
+    const value = {
+      atMs: Date.now(),
+      deployment,
+      codeVersion: codeVersion ?? null,
+      codeStale: codeStale ?? false,
+    };
     if (existing) {
       await ctx.db.patch(existing._id, { value });
       return existing._id;
@@ -40,11 +49,18 @@ export const status = query({
       .first();
     if (!row) return null;
 
-    const value = row.value as { atMs?: number; deployment?: string } | null;
+    const value = row.value as {
+      atMs?: number;
+      deployment?: string;
+      codeVersion?: string | null;
+      codeStale?: boolean;
+    } | null;
     if (!value?.atMs) return null;
     return {
       lastSeenMs: value.atMs,
       deployment: value.deployment ?? "unknown",
+      codeVersion: value.codeVersion ?? null,
+      codeStale: value.codeStale === true,
     };
   },
 });

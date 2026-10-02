@@ -249,9 +249,15 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     if (!authorized(request)) return unauthorized();
-    const body = (await request.json()) as { deployment?: string };
+    const body = (await request.json()) as {
+      deployment?: string;
+      codeVersion?: string;
+      codeStale?: boolean;
+    };
     await ctx.runMutation(internal.worker.recordHeartbeat, {
       deployment: body.deployment ?? "unknown",
+      codeVersion: body.codeVersion,
+      codeStale: body.codeStale,
     });
     return json("ok");
   }),
