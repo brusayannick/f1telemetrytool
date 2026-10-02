@@ -17,14 +17,16 @@ import type { LapSeries } from "@/lib/telemetry";
  */
 export type CornerBreakdown = {
   label: string;
-  /** B losing (+) or gaining (−) time inside the braking phase, in ms. */
+  /** B losing (+) or gaining (−) on the run in, from the previous exit to the brakes. */
+  approachMs: number;
+  /** The same, inside the braking phase. */
   brakeMs: number;
   /** The same, inside a window centred on the apex. */
   apexMs: number;
   /** The same, from the end of the apex window to the exit. */
   exitMs: number;
-  /** The rest of the corner's measured delta: run-in and run-out. */
-  otherMs: number;
+  /** What the four windows do not account for. Should be small; never rescaled. */
+  residualMs: number;
   /** The measured corner delta this decomposes, in ms. */
   totalMs: number;
 };
@@ -98,35 +100,56 @@ export function cornerBreakdown(
   measuredByLabel: Map<string, number>,
 ): CornerBreakdown[] {
   const performances = cornerPerformance(a, groups);
+  const out: CornerBreakdown[] = [];
 
-  return performances
-    .filter((performance) => measuredByLabel.has(performance.label))
-    .map((performance) => {
-      const apex = performance.apexDist;
-      const segmentFrom =
-        performance.brakeDist ?? Math.max(a.dist[0], apex - NO_BRAKE_LEAD_IN_M);
-      const segmentTo = performance.exitDist;
+  // The same window the corner table uses, so the phases tile it exactly and the residual
+  // is only numerical: from where the previous corner ended to this corner's exit.
+  let previousExit = 0;
 
-      // Three disjoint windows, so nothing is counted twice.
-      const brakeMs = paceIntegralMs(a, b, segmentFrom, apex - APEX_HALF_WINDOW_M);
-      const apexMs = paceIntegralMs(
-        a,
-        b,
-        apex - APEX_HALF_WINDOW_M,
-        apex + APEX_HALF_WINDOW_M,
-      );
-      const exitMs = paceIntegralMs(a, b, apex + APEX_HALF_WINDOW_M, segmentTo);
+  for (let index = 0; index < performances.length; index += 1) {
+    const performance = performances[index];
+    if (!measuredByLabel.has(performance.label)) continue;
 
-      const totalMs = measuredByLabel.get(performance.label) ?? 0;
+    const apex = performance.apexDist;
+    const segmentFrom = previousExit;
+    // Clamped at the next corner's braking start, exactly like the corner table: without it
+    // the exit lookahead overlaps the next corner and the windows double-count that stretch.
+    const next = performances[index + 1];
+    // Midpoint to the next corner, as in the corner table — symmetric, so closely spaced
+    // corners share the gap rather than one swallowing the other's window.
+    const segmentTo = next
+      ? Math.min(performance.exitDist, (apex + next.apexDist) / 2)
+      : performance.exitDist;
+    previousExit = segmentTo;
 
-      return {
-        label: performance.label,
-        brakeMs,
-        apexMs,
-        exitMs,
-        // Whatever the three windows do not cover. Never rescaled.
-        otherMs: totalMs - (brakeMs + apexMs + exitMs),
-        totalMs,
-      };
+    // Four boundaries, clamped into the segment and forced monotone. Without the monotone
+    // clamp a corner whose apex sits close to its clamped end produces windows that run past
+    // the segment — which showed up as a *negative* residual, larger than the corner itself.
+    const clamp = (value: number) => Math.max(segmentFrom, Math.min(value, segmentTo));
+    const brakeStart = performance.brakeDist ?? segmentFrom;
+    const b1 = clamp(brakeStart);
+    const b2 = Math.max(b1, clamp(apex - APEX_HALF_WINDOW_M));
+    const b3 = Math.max(b2, clamp(apex + APEX_HALF_WINDOW_M));
+
+    // The four windows tile [segmentFrom, segmentTo] exactly, in order.
+    const approachMs = paceIntegralMs(a, b, segmentFrom, b1);
+    const brakeMs = paceIntegralMs(a, b, b1, b2);
+    const apexMs = paceIntegralMs(a, b, b2, b3);
+    const exitMs = paceIntegralMs(a, b, b3, segmentTo);
+
+    const totalMs = measuredByLabel.get(performance.label) ?? 0;
+
+    out.push({
+      label: performance.label,
+      approachMs,
+      brakeMs,
+      apexMs,
+      exitMs,
+      // Only what the windows missed — integration step and window rounding.
+      residualMs: totalMs - (approachMs + brakeMs + apexMs + exitMs),
+      totalMs,
     });
+  }
+
+  return out;
 }

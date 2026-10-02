@@ -658,6 +658,12 @@ export function CompareCharts({
                     <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 pl-7 text-[10px] text-muted">
                       <span className="uppercase tracking-[0.14em]">breakdown · model</span>
                       <span>
+                        approach{" "}
+                        <span className="tabular-nums text-ink">
+                          {signedSeconds(entry.approachMs)}
+                        </span>
+                      </span>
+                      <span>
                         braking{" "}
                         <span className="tabular-nums text-ink">
                           {signedSeconds(entry.brakeMs)}
@@ -676,9 +682,9 @@ export function CompareCharts({
                         </span>
                       </span>
                       <span>
-                        not attributed{" "}
-                        <span className="tabular-nums text-warning">
-                          {signedSeconds(entry.otherMs)}
+                        residual{" "}
+                        <span className="tabular-nums text-muted">
+                          {signedSeconds(entry.residualMs)}
                         </span>
                       </span>
                     </div>
@@ -691,11 +697,11 @@ export function CompareCharts({
             Ranked from the corner rows above, so the two cannot disagree. Each line names
             only causes present in the measured fields; where none stands out it says so
             instead of inventing one. A row marked ? had no braking in its stretch and is
-            not a measurement. The breakdown is a <strong>model</strong>: the three phases
-            are the time difference actually accumulated inside three windows, and
-            everything they do not cover — the run in before braking and the run out after
-            the exit — is reported as “not attributed” rather than folded into them. A large
-            remainder is a statement about the model, not about the driver.
+            not a measurement. The breakdown is a <strong>model</strong>: four disjoint
+            windows — the run in, braking, a window centred on the apex, and the run out —
+            carry the time difference actually accumulated inside them. They tile the
+            corner, so the residual is only numerical; it is shown rather than hidden, and
+            nothing is ever rescaled to make the sum look tidy.
           </p>
         </div>
       ) : null}

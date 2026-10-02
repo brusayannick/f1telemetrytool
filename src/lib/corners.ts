@@ -337,13 +337,46 @@ export function cornerDeltas(
   const rightByLabel = new Map(b.map((perf) => [perf.label, perf]));
   const out: CornerDelta[] = [];
 
-  for (const left of a) {
+  // The table asks what this corner cost, so the time figure is the delta *accumulated
+  // through* the corner: from where the previous corner ended to this corner's exit.
+  //
+  // Reading the trace at the apex instead — which is what this used to do — reports the
+  // running total from the start of the lap. That makes every corner after an earlier
+  // mistake look bad for a reason that happened somewhere else, and it cannot be
+  // decomposed into phases, because the phases cover a window and the total covers the
+  // lap. The increments tile the lap, so they still add up to the lap total.
+  let previousExit = 0;
+
+  for (let index = 0; index < a.length; index += 1) {
+    const left = a[index];
+    const next = a[index + 1];
     const right = rightByLabel.get(left.label);
     if (!right) continue;
     const brakeDeltaM =
       left.brakeDist === null || right.brakeDist === null
         ? null
         : right.brakeDist - left.brakeDist;
+
+    const fromM = previousExit;
+    // The exit lookahead can reach past the next corner, which would make two neighbouring
+    // windows overlap and the increments sum to more than the lap. The bound is the midpoint
+    // to the next corner — the same rule the apex window uses, and symmetric, so a pair of
+    // corners 63 m apart (Abu Dhabi T6/T7) each keep half the gap instead of one losing its
+    // whole window to the other's braking zone.
+    const toM = next
+      ? Math.min(left.exitDist, (left.apexDist + next.apexDist) / 2)
+      : left.exitDist;
+    // A missing sample gives null rather than a fake zero: an absent value is not a
+    // corner that cost nothing.
+    let timeDeltaMs: number | null = null;
+    if (trace) {
+      const atEnd = sampleAt(trace.dist, trace.delta, toM);
+      const atStart = sampleAt(trace.dist, trace.delta, fromM);
+      timeDeltaMs = atEnd !== null && atStart !== null ? atEnd - atStart : null;
+    }
+    // Only advance for corners we emit: a corner missing from either lap has its stretch
+    // absorbed by the next one, so nothing falls out of the tiling.
+    previousExit = toM;
 
     out.push({
       label: left.label,
@@ -353,7 +386,7 @@ export function cornerDeltas(
       apexSpeedDelta: right.apexSpeed - left.apexSpeed,
       brakeDeltaM,
       exitSpeedDelta: right.exitSpeed - left.exitSpeed,
-      timeDeltaMs: trace ? sampleAt(trace.dist, trace.delta, left.apexDist) : null,
+      timeDeltaMs,
       verified: left.verified && right.verified,
     });
   }
