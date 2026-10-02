@@ -317,7 +317,21 @@ export function SegmentMatrix({
                     // the column header quotes, the cell is not comparable and says so
                     // instead of contributing a number that looks like the others.
                     const rangeDrift = Math.abs(segment.fromM - column.fromM);
-                    const comparable = rangeDrift <= 200;
+
+                    // A corner segment must contain the corner it is named after. When the
+                    // previous corner's window clamps past this corner's own apex —
+                    // `from = max(cursor, windowFrom)` — the apex ends up outside the range
+                    // and the segment is not the corner whose label it carries. The apex
+                    // distance is the one signal that detects this from the segment alone.
+                    const apexInside =
+                      segment.kind !== "corner" ||
+                      (segment.apexM !== null &&
+                        segment.apexM >= segment.fromM &&
+                        segment.apexM <= segment.toM);
+                    const driftReason = apexInside
+                      ? "different stretch"
+                      : "its apex lies outside it — the stretch belongs to a neighbour";
+                    const comparable = rangeDrift <= 200 && apexInside;
 
                     const span = scaleByLabel.get(column.label) ?? 1;
                     const intensity =
@@ -336,7 +350,7 @@ export function SegmentMatrix({
                               ? ""
                               : ` · starts ${numberFmt.format(rangeDrift)} m from the column's ${numberFmt.format(
                                   column.fromM,
-                                )} m — different stretch, not comparable`
+                                )} m — ${driftReason}, not comparable`
                           }${
                             deltaMs === null
                               ? " · no clean reference"

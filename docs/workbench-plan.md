@@ -1194,12 +1194,32 @@ Strecke abdecken. Die Matrix vergleicht deshalb den `fromM` der Zelle mit dem de
 Spaltenkopfs und schreibt **`±` statt einer Zahl**, wenn sie mehr als 200 m auseinander
 liegen. Gemessen: **7 Zellen** sind so markiert.
 
-**Was das nicht erklärt:** Die großen Werte bleiben und liegen nach dem Fix **lokalisiert
-auf T12 und T13** — +2.499 ms (L14), −1.782 ms (L11), +2.082 ms (L17). Das sind genau die
-zwei Kurven, die B15 als die echten Verlustkurven gemessen hat, aber 2,5 s in *einer*
-Kurve einer 82-Sekunden-Runde ist zu groß für einen Fahrfehler. **Status: offen** — der
-nächste Schritt ist, für T13 die Segmentgrenzen `fromM`/`toM` über alle Runden
-auszugeben und die Segmentdauer gegen die reine Distanz zu prüfen.
+**Die Messung, die den Restwert entscheidet — der Wert ist nicht real:** L17 gegen L5 (die
+beiden sauberen Runden), Zeit pro 100 m verglichen. Die größte Differenz auf der **ganzen
+Runde** ist **−303 ms** bei 2500–2600 m; kein Fenster kommt auch nur in die Nähe von 2 s.
+Das langsamste 100-m-Fenster liegt auf **jeder** Runde bei 2600 m und dauert 3,8–4,1 s
+(L17 3,998 / L5 3,953 / L14 3,817 / L11 4,117 s). Die Telemetrie ist glatt. **Die
++2.082/2.499/−1.782 ms existieren im Datenbestand nicht** — sie sind ein Artefakt der
+Zerlegung.
+
+**Ursache, im Code nachgewiesen (drei Wege, nicht einer):**
+1. **Clip-Pfad** (`segments.ts`): `from = max(cursor, windowFrom)` kann **über den eigenen
+   Scheitel der Kurve hinaus** rutschen. Das Segment trägt dann das Label `T12`, deckt aber
+   nicht T12 ab — erkannt daran, dass `apexM < fromM` gilt.
+2. **`continue`-Pfad**: wird eine Kurve wegen `to <= from` verworfen, liegt ihr ganzes
+   Gebiet **hinter** dem Cursor und wird vom **vorherigen** Segment geschluckt; das
+   absorbierende Segment behält `verified: true` und verrät nichts. (Meine Annahme, die
+   *nächste* Kurve schlucke sie, war falsch — die Algebra lässt das nicht zu.)
+3. **`cornerPerformance`-Drop**: eine gar nicht erst gelieferte Kurve hinterlässt keine
+   Spur außer einer **Lücke in der Labelfolge** (`T6 → →T8`).
+
+**Behebung:** Die Matrix prüft jetzt zusätzlich, ob der Scheitel eines Kurvensegments
+**innerhalb** seines eigenen Bereichs liegt. Ist er es nicht, schreibt die Zelle `±` mit
+Begründung statt einer Zahl. Die Bereichsdrift-Prüfung (±200 m) bleibt daneben bestehen.
+**Status: Ursache und Restwert erklärt** — die großen Werte sind keine Fahrzeit und werden
+als `±` markiert. **Nicht** behoben ist Weg 2, der absorbierende Nachbar: er ist im
+Segment allein nicht erkennbar. Der nächste Schritt dafür wäre, ein absorbiertes Segment
+ald Nicht-Messung auszuweisen statt es stillschweigend zu vergrößern.
 
 ### Was davon jetzt behebbar ist
 
@@ -1216,5 +1236,5 @@ auszugeben und die Segmentdauer gegen die reine Distanz zu prüfen.
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
-| B17 | **Ursache behoben** — Geradenlabels waren ein Zähler pro Runde und rutschten um eins (B4), jetzt identitätsbasiert (`→T8`) plus `±`-Marke bei Bereichsdrift; die großen T12/T13-Werte sind noch nicht erklärt |
+| B17 | **erledigt** — Ursache und Restwert gemessen: die 2-Sekunden-Werte existieren im Datenbestand nicht (max. 303 ms per 100 m), sie sind ein Zerlegungs-Artefakt; Clip-Pfad durch `±` erkannt, der absorbierende Nachbar bleibt als nicht erkennbar dokumentiert |
 | B16 | erledigt — eigene Kostenschätzung war falsch (ein File = ganze Session); F18 mit einem Fetch gebaut |
