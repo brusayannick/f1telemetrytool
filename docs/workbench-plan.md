@@ -867,13 +867,10 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 **Stand:** A im Kern umgesetzt und verifiziert — Lane-Stapel mit einer Lane pro Kanal
 (12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
 Kanal-Statistik, Lane-Schalter. B: gemeinsame Rumpf-Zerlegung (`src/lib/segments.ts`) mit
-Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F13** (Segmentzeiten mit
-Balken und sortierbarer Zeitspalte), **F15** (Δt-Zerlegung), **F16** (Rangliste der
-Zeitverluste) und **F18** (Segment-Matrix) umgesetzt; B17 ist erledigt. **D**
-teilweise: **F19**, **F20** und **F22** sind im Konsistenz-Panel umgesetzt — Median/MAD je
-Kurve mit n, Bremspunkt-Streuung, Ausreißer markiert und anklickbar. Offen in D: der
-Streu-Scatter aus F22, die Einzelpunkte über der Distanz aus F20 und **F21** ganx.
-E bis K offen.
+Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle. C: **F13**, **F15**, **F16**,
+**F18** umgesetzt; B17 ist erledigt. **D: F19, F20, F21 und F22 (Abnahme) umgesetzt.**
+Offen: der Streu-Scatter aus F22, die Einzelpunkte über der Distanz aus F20 und die
+Segment-Quartile aus F21. **E bis K offen** — als nächstes F23 bis F28.
 
 Befunde in Abschnitt 11: erledigt sind B1–B3, B5–B7, B10–B13; **B15 ist in der Ursache
 behoben** (das Kurven-Δt war der Rundenstand, nicht der Kurvenverlust — ein Defekt in F8);
@@ -1288,6 +1285,38 @@ Shell nur exakt `s1`/`s2`/`s3` und meldete „NONE". Die Felder heißen `s1Ms` u
 Subagent hat es korrekt gefunden. Wieder eine Behauptung, die eine Messung widerlegt hat —
 diesmal meine eigene.
 
+### B20 — Die teure Doppelarbeit existiert nicht, die billige ist nicht gemessen
+**Anlass:** Drei Panels laden dieselbe Telemetriedatei (480 KiB) — `workbench-chart`,
+`segment-matrix`, `consistency-panel`. Ich hielt das für dreifachen Netzwerk- und
+Dekodieraufwand und wollte es beheben.
+
+**Messung:** `loadTelemetry` hält bereits einen **Promise-Cache auf Modulebene** (8
+Einträge, Insertion-Order-Verdrängung, Fehler werden entfernt). Der erste Aufruf legt das
+Promise synchron ab, die beiden anderen treffen den Cache — auch gleichzeitige Aufrufe
+kollabieren zu einem Fetch. Gemessen im Browser: **1 Netzwerk-Fetch und 1 gunzip+msgpack**
+pro Seitenaufbau, nicht drei. Meine Sorge war unbegründet (siebte Fehlannahme in Folge, die
+eine Messung widerlegt hat).
+
+**Was der Agent stattdessen gefunden hat:** Auf der CPU-Ebene wird sehr wohl doppelt
+gerechnet. `segment-matrix` und `consistency-panel` laufen **jeder** über alle Runden und
+rufen `lapSeries` + `buildSegments` je Runde auf; die Lane-Leiste zerlegt zusätzlich die
+gewählte Runde. Macht **2N + 1 Aufrufe** pro Seitenaufbau — bei ~18–21 Runden also rund
+**40 Zerlegungen**, und jede Runde wird mindestens zweimal, die gewählte dreimal zerlegt.
+Ein Cache auf (Runde, Kurven) existiert nicht.
+
+**Warum ich das trotzdem nicht behebe:** Die **Kosten sind nicht gemessen.** Eine
+Zerlegung ist ein Interpolationslauf über ~4.500 Samples plus Kurvenauswertung; 40 davon
+können 5 ms oder 120 ms sein, und ich weiß es nicht. Genau diese Lücke war B2: eine Sperre
+gegen ein Problem, das der Code schon löste. Der Unterschied zur Netzwerkseite ist: **dort
+habe ich gemessen, hier nicht.** Ein Cache würde die Zahlen nicht verändern — beide Panels
+rufen dieselbe Funktion mit denselben Eingaben auf, sie können nicht auseinanderlaufen.
+
+**Konsequenz:** Wer das angehen will, misst zuerst die Zeit für 2N+1 Zerlegungen gegen eine
+mit Profiler gemessene Gesamtzeit der Seite. Erst wenn die Zerlegung dort sichtbar ist, ist
+ein Cache auf (Runde, Kurven) gerechtfertigt — nicht vorher.
+**Status: gemessen und abgeschlossen** — die Netzwerkseite ist nachweislich dedupliziert,
+die CPU-Seite ist als offen **mit fehlender Messung** dokumentiert, nicht als Fehler.
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1303,6 +1332,7 @@ diesmal meine eigene.
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
+| B20 | erledigt — der Fetch war bereits dedupliziert (1 statt 3), gemessen; die CPU-Doppelarbeit ist als **unmessiert** dokumentiert und wird bewusst nicht „optimiert“ |
 | B19 | erledigt — Sektorzeiten waren da und ungelesen, F21 gebaut; der Datenvertrag nennt Sektoren nicht, das ist notiert |
 | B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |
 | B17 | **erledigt** — Ursache und Restwert gemessen: die 2-Sekunden-Werte existieren im Datenbestand nicht (max. 303 ms per 100 m), sie sind ein Zerlegungs-Artefakt; Clip-Pfad durch `±` erkannt, der absorbierende Nachbar bleibt als nicht erkennbar dokumentiert |
