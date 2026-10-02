@@ -784,7 +784,7 @@ Bündel lädt, sieht danach genau, welche Werte gesetzt wurden.
 | `z` | Feed | Dezimeter | immer |
 | `ahead` | Feed | m | neuere Payloads, NaN wenn führend |
 | `rel` | Feed | 0–1 | neuere Payloads |
-| `accel` | berechnet `d(speed)/dt` | m/s² | immer |
+| `accel` | berechnet, **Zentraldifferenz** über ±1 Sample | m/s² | immer |
 | `coast`, `trail` | berechnet aus Pedalen | % | immer |
 
 ### 8.2 Was es nicht gibt und nicht geben wird
@@ -809,7 +809,12 @@ Bündel lädt, sieht danach genau, welche Werte gesetzt wurden.
 ### 8.3 Grenzen der Daten, die im UI stehen müssen
 
 - Abtastung ~7.3 Hz nominal, **unregelmäßig**: median 137 ms, max 1000 ms, beobachtetes
-  Minimum 43 ms.
+  Minimum **2 ms** — der gemergte Car+Pos-Zeitstempel, an dem sich die interpolierte
+  Position kaum bewegt hat.
+- **Ableitungen müssen zentraldifferenziell rechnen.** Über einen 2-ms-Schritt ergäbe eine
+  Vorwärtsdifferenz aus 1 km/h Quantisierung bis zu 140 m/s². Der Kanal `accel` summiert
+  deshalb zwei Schritte und reproduziert die Statistik exakt (−53,28 m/s² auf Abu Dhabi Q
+  Runde 17). Siehe B2.
 - Position 0.1 m quantisiert; **gemessen 51 % der Samples liegen exakt auf dem Raster, also
   49 % interpoliert** (Abu Dhabi Q, Fahrer 1; `analysis/lateral_accel.py`). Kleinster
   beobachteter Schritt 7 mm.
@@ -850,8 +855,8 @@ mit Abhängigkeiten; die Reihenfolge innerhalb der Phase folgt den Abhängigkeit
 (12 auf allen vier geprüften Strecken), volle Breite, Cursor-Readout mit Schrittsteuerung,
 Kanal-Statistik, Lane-Schalter. B begonnen: gemeinsame Rumpf-Zerlegung
 (`src/lib/segments.ts`) mit Segmenten, Kurvenmarken in allen Lanes und Segmenttabelle.
-C bis K offen. Befunde in Abschnitt 11; B1, B3, B5, B6, B7, B10, B11, B13 erledigt,
-B2, B4, B8, B12, B14 offen oder zurückgestellt.
+C bis K offen. Befunde in Abschnitt 11; **B1–B3, B5–B7, B10–B13 erledigt**, offen sind
+B4 (bewusst), B8 (zurückgestellt) und B14 (Konsequenz für Arbeitsstrom I).
 
 **Befund aus der B-Validierung (vier Strecken):** Die Abnahme „Σ Segmentzeiten = Rundenzeit"
 war falsch formuliert. Das Telemetrie-Fenster ist um 87–307 ms kürzer als die offizielle
@@ -975,14 +980,18 @@ Ab 2516 m Bremse 100, Gas fällt auf 0, Speed 331 → 164 km/h bis 2582 m. Minim
 Datenqualitäts-Beispiel dient jetzt der verifizierte Bremskanal-Artefakt.
 **Status: erledigt** (Plan korrigiert).
 
-### B2 — Ableitungs-Extreme hängen am Differenzschema und an kleinen Δt
-**Messung:** dieselbe Runde ergibt −59,0 m/s² (Vorwärtsdifferenz, rohe Samples) gegen
-−53,28 m/s² (Kanal `accel`). Beobachtete Zeitschritte bis **43 ms** gegen Median 137 ms.
-Bei 43 ms erzeugt 1 km/h Quantisierung (0,28 m/s) **6,5 m/s²** Ableitungsrauschen, bei
-137 ms nur 2 m/s².
-**Konsequenz:** Der Parameter „Max. Zeitschritt" zielt auf das falsche Ende — gefährlich
-sind **kleine** Δt, nicht große. Nötig ist eine Mindest-Δt-Sperre oder ein breiterer
-Stencil. **Status: offen** (gehört zu F44 und zum `accel`-Kanal).
+### B2 — Korrigiert: der Kanal rechnet bereits robust
+**Erste Annahme (falsch):** Der `accel`-Kanal leide unter kleinen Δt, der Parameter „Max.
+Zeitschritt" ziele auf das falsche Ende, eine Mindest-Δt-Sperre sei nötig.
+**Messung:** Der Kanal nutzt eine **Zentraldifferenz** über ±1 Sample und reproduziert auf
+derselben Runde die Statistik **exakt**: −53,28 m/s² (−5,43 g). Meine −59,03 m/s² kamen aus
+einer **Vorwärtsdifferenz** in meinem Ad-hoc-Skript. Der kleinste Zeitschritt im Fenster ist
+**2 ms** (Median 137 ms); eine Vorwärtsdifferenz darüber ergäbe aus 1 km/h Quantisierung bis
+zu 140 m/s², die Zentraldifferenz überbrückt ihn, weil sie zwei Schritte summiert.
+**Konsequenz:** Kein Fix nötig, der bestehende Parameter bleibt sinnvoll (er schützt gegen
+große Lücken). Der Befund belegt die Regel „erst messen, dann bauen" — sonst wäre eine
+Sperre gegen ein Problem entstanden, das der Code schon löst.
+**Status: erledigt** (geprüft, kein Fix).
 
 ### B3 — Das Telemetrie-Fenster ist kürzer als die offizielle Rundenzeit
 **Messung:** Σ Segmente gegen offizielle Rundenzeit: −87 ms (Abu Dhabi), −156 (Melbourne),
@@ -1065,11 +1074,17 @@ heißt das: `metricVersion` allein genügt nicht, der **Telemetrie-Stand muss mi
 werden**, sonst sind zwei Kennzahl-Sätze nicht vergleichbar. **Status: offen** —
 Konsequenz für Arbeitsstrom I, nicht einzeln behebbar.
 
-### B12 — Dokumentation widerspricht dem Betrieb
-**Messung:** `ingest/README.md` beschreibt GitHub-Actions-Ingestion mit Ratenlimits
-(4 req/s, 500 req/h, ~10 Sessions/h) — wegen der IP-Sperre unmöglich. Die Root-README
-ebenso.
-**Status: offen** (Arbeitsstrom K).
+### B12 — Dokumentation widersprach dem Betrieb
+**Messung:** 17 falsche oder irreführende Aussagen in `README.md` und `ingest/README.md`:
+der Worker als „GitHub Actions" statt lokaler Watcher, „neue Daten landen kurz nach jeder
+Session" obwohl nichts automatisch lädt, `run-due` statt `watch` als empfohlener Befehl,
+`by-session` als „used by CI", R2 als tatsächliches Objekt-Storage nirgends erwähnt, die
+Kanal-Liste ohne `ahead`/`rel`, und die Behauptung „nichts versucht den blockierten Pfad",
+während `ingest-cron.yml` alle 30 Minuten genau das tut.
+**Behebung:** Beide READMEs korrigiert — On-Demand-Ablauf, ein Abschnitt „Running the
+workers" mit beiden Watchern, vollständige Befehlsliste, R2 und seine Variablen, die
+Kanal-Liste, und der Hinweis, dass die Workflows nicht ingestieren können.
+**Status: erledigt.**
 
 ### Was davon jetzt behebbar ist
 
@@ -1080,7 +1095,8 @@ ebenso.
 | B7 | erledigt — Watcher meldet Code-Version, Stale-Erkennung end-to-end geprüft |
 | B11 | erledigt — 51 % auf dem Raster gemessen, beide Stellen korrigiert |
 | B13 | erledigt — Prüfskript läuft eigenständig |
-| B2 | offen — Mindest-Δt-Sperre, gehört in F44 |
+| B2 | erledigt — geprüft: der Kanal rechnet bereits zentraldifferenziell, kein Fix nötig |
 | B4 | bewusst offen — die Alternative wäre, fremde Scheitel zu berichten |
-| B8, B12 | zurückgestellt auf Arbeitsstrom K |
+| B8 | zurückgestellt — echte Auth ist Arbeitsstrom K, kein Fix am Rand |
+| B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Konsequenz für Arbeitsstrom I (Telemetrie-Stand in den Fingerprint) |

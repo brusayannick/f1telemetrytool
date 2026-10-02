@@ -90,7 +90,7 @@ def ingest_one(
                 "telemetry). Refusing to store an empty session — this usually "
                 "means the feed blocks this network (cloud/datacenter IPs are "
                 "commonly blocked, e.g. GitHub Actions). Run the ingest from a "
-                "residential connection or a self-hosted runner."
+                "residential connection, e.g. python -m ingest.cli watch."
             )
 
         if telemetry and not nz.has_car_telemetry(session):
