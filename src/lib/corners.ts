@@ -1,7 +1,8 @@
 import type { DeltaTrace, LapSeries } from "@/lib/telemetry";
 
 /**
- * Per-corner comparison, built on FastF1's curated corner database.
+ * Per-corner comparison, built on FastF1's curated corner database — with a data-driven
+ * fallback when the database is wrong or missing.
  *
  * Corners are deliberately *not* detected from path curvature. Measured against 2025 Abu
  * Dhabi qualifying (`analysis/lateral_accel.py`), the position channel's first derivative
@@ -9,6 +10,14 @@ import type { DeltaTrace, LapSeries } from "@/lib/telemetry";
  * detector would mostly find that noise. The database gives the corner's distance along
  * the lap, which is all this needs — everything else here is first order (distance, speed,
  * pedals) and therefore trustworthy.
+ *
+ * But the database is not infallible: Abu Dhabi's T11 marker sits ~130 m early, in the
+ * middle of a flat-out straight (both drivers at 283 km/h, no braking), while the real
+ * corner — the T12 hairpin — is at 4323 m. So every database corner is validated against
+ * the lap itself: a corner whose stretch contains no braking at all is reported as
+ * unverified rather than as a measurement. And when there is no database at all (older
+ * seasons, missing circuit data), corners are found from the speed profile instead —
+ * every braking zone implies a corner.
  */
 
 /** A corner as stored on the event: where it is along the lap, plus its geometry. */
@@ -31,6 +40,17 @@ export type CornerPerformance = {
   brakeDist: number | null;
   exitDist: number;
   exitSpeed: number; // km/h
+  /**
+   * Whether the lap itself confirms this corner.
+   *
+   * A database marker with no braking anywhere in its stretch is either a flat-out kink
+   * or a misplaced marker (Abu Dhabi T11 sits 130 m early, mid-straight, both drivers at
+   * 283 km/h). Either way there is nothing to compare, so the row is marked unverified
+   * instead of reporting a minimum that belongs to a neighbouring corner. A corner whose
+   * minimum sits on the edge of a still-falling profile is skipped outright — that
+   * minimum is the run into the next corner, not this one.
+   */
+  verified: boolean;
 };
 
 /** Which corner, and how the two laps differ through it. Deltas are B relative to A. */
@@ -45,6 +65,8 @@ export type CornerDelta = {
   exitSpeedDelta: number; // km/h, positive = B carries more speed out
   /** Time difference at this corner from the delta trace; positive = B is behind. */
   timeDeltaMs: number | null;
+  /** False when neither lap braked in this stretch — the row is not a measurement. */
+  verified: boolean;
 };
 
 /** How far either side of the database distance the real speed minimum may sit. */
@@ -113,10 +135,14 @@ export function cornerGroups(corners: Corner[]): CornerGroup[] {
  */
 export function cornerPerformance(
   series: LapSeries,
-  corners: Corner[],
+  corners: Corner[] | CornerGroup[],
 ): CornerPerformance[] {
   const out: CornerPerformance[] = [];
-  const list = cornerGroups(corners);
+  // Database corners carry numbers; detected ones are already groups.
+  const list: CornerGroup[] =
+    corners.length > 0 && "number" in corners[0]
+      ? cornerGroups(corners as Corner[])
+      : (corners as CornerGroup[]);
 
   for (let index = 0; index < list.length; index += 1) {
     const corner = list[index];
@@ -145,6 +171,15 @@ export function cornerPerformance(
     }
     if (apex < 0) continue;
 
+    // A minimum on the edge of a still-falling profile is not this corner's apex — it is
+    // the run into the next corner's braking zone (Abu Dhabi T11's stretch ends at 4258 m
+    // with the speed still falling toward the T12 hairpin). Only an interior minimum, or
+    // one where the speed has actually bottomed out, counts.
+    const atEdge = apex === apexTo - 1;
+    const stillFalling =
+      atEdge && apex > apexFrom && series.speed[apex] < series.speed[apex - 1];
+    if (stillFalling) continue;
+
     // Braking runs *into* the apex, and the driver is usually off the brakes by the time
     // the speed bottoms out — so the first braking sample before the apex is the *end* of
     // the zone. Walk back through the zone from there to find where it started.
@@ -171,6 +206,20 @@ export function cornerPerformance(
       }
     }
 
+    // Validation against the lap itself: a corner with no braking anywhere in its own
+    // stretch is either flat out or its marker is misplaced (Abu Dhabi T11). The minimum
+    // found there belongs to a neighbour's braking zone, so it must not be reported as
+    // this corner's apex.
+    let verified = brakeDist !== null;
+    if (!verified) {
+      for (let i = apexFrom; i < apexTo; i += 1) {
+        if (series.brk[i] > 0) {
+          verified = true;
+          break;
+        }
+      }
+    }
+
     // Exit: the moment the driver is back to full throttle, or the end of the window if
     // they are still feeding it in (slow corners, dirty air).
     const exitTo = lowerBound(series.dist, series.dist[apex] + EXIT_LOOKAHEAD_M);
@@ -189,10 +238,71 @@ export function cornerPerformance(
       brakeDist,
       exitDist: series.dist[exit],
       exitSpeed: series.speed[exit],
+      verified,
     });
   }
 
   return out;
+}
+
+/**
+ * Find corners from the speed profile alone — the fallback when no database exists.
+ *
+ * Every braking zone implies a corner: the apex is the speed minimum after the zone ends,
+ * and the corner's position is that minimum. Zones closer together than this are one
+ * complex (the in-lap equivalent of the T6/T7 midpoint rule), and a zone must actually
+ * slow the car — coasting or a dab of brake on a straight is not a corner.
+ */
+const DETECT_MERGE_M = 120;
+const DETECT_MIN_DROP_KMH = 15;
+
+export function detectCorners(series: LapSeries): CornerGroup[] {
+  type Zone = { start: number; end: number };
+  const zones: Zone[] = [];
+
+  // Collect contiguous braking samples into zones.
+  let open: number | null = null;
+  for (let i = 0; i < series.dist.length; i += 1) {
+    if (series.brk[i] > 0) {
+      if (open === null) open = i;
+    } else if (open !== null) {
+      zones.push({ start: open, end: i - 1 });
+      open = null;
+    }
+  }
+  if (open !== null) zones.push({ start: open, end: series.dist.length - 1 });
+
+  // Merge zones that belong to one complex, then keep only zones that slow the car.
+  const merged: Zone[] = [];
+  for (const zone of zones) {
+    const last = merged[merged.length - 1];
+    if (last && series.dist[zone.start] - series.dist[last.end] < DETECT_MERGE_M) {
+      last.end = zone.end;
+    } else {
+      merged.push({ ...zone });
+    }
+  }
+
+  const groups: CornerGroup[] = [];
+  let index = 0;
+  for (const zone of merged) {
+    // The apex is the minimum between the zone's end and the next zone's start (or the
+    // end of the lap) — the driver may still be slowing after releasing the brake.
+    const next = merged[merged.indexOf(zone) + 1];
+    const limit = next ? next.start : series.dist.length - 1;
+    let apex = zone.end;
+    for (let i = zone.end; i <= limit; i += 1) {
+      if (series.speed[i] < series.speed[apex]) apex = i;
+    }
+
+    const before = series.speed[zone.start];
+    if (before - series.speed[apex] < DETECT_MIN_DROP_KMH) continue;
+
+    index += 1;
+    groups.push({ label: `C${index}`, distance: series.dist[apex] });
+  }
+
+  return groups;
 }
 
 /** Linear lookup in a distance-indexed trace; null outside its range. */
@@ -214,19 +324,22 @@ function sampleAt(dist: Float64Array, values: Float64Array, target: number): num
 /**
  * Pair two laps corner by corner.
  *
- * Both performances must come from the same corner list, so they are matched by position.
+ * Both performances must come from the same corner list, so they are matched by label —
+ * not by position. Either lap may skip a corner (a minimum on the edge of a still-falling
+ * profile belongs to the next corner), and pairing by index would silently shift every
+ * later row onto the wrong corner.
  */
 export function cornerDeltas(
   a: CornerPerformance[],
   b: CornerPerformance[],
   trace: DeltaTrace | null,
 ): CornerDelta[] {
-  const count = Math.min(a.length, b.length);
+  const rightByLabel = new Map(b.map((perf) => [perf.label, perf]));
   const out: CornerDelta[] = [];
 
-  for (let i = 0; i < count; i += 1) {
-    const left = a[i];
-    const right = b[i];
+  for (const left of a) {
+    const right = rightByLabel.get(left.label);
+    if (!right) continue;
     const brakeDeltaM =
       left.brakeDist === null || right.brakeDist === null
         ? null
@@ -241,6 +354,7 @@ export function cornerDeltas(
       brakeDeltaM,
       exitSpeedDelta: right.exitSpeed - left.exitSpeed,
       timeDeltaMs: trace ? sampleAt(trace.dist, trace.delta, left.apexDist) : null,
+      verified: left.verified && right.verified,
     });
   }
 

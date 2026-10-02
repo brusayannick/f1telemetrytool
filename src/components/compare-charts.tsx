@@ -19,6 +19,7 @@ import { TrackMap } from "@/components/track-map";
 import {
   cornerDeltas,
   cornerPerformance,
+  detectCorners,
   type Corner,
   type CornerDelta,
 } from "@/lib/corners";
@@ -90,6 +91,8 @@ type Built = {
   biggestLossMs: number;
   biggestLossAtM: number;
   corners: CornerDelta[] | null;
+  /** False when the rows are detected braking zones, not official corner numbers. */
+  cornersFromDatabase: boolean;
 };
 
 function medianStep(times: Float64Array): number {
@@ -148,9 +151,14 @@ function build(a: LapSeries, b: LapSeries, corners: Corner[] | null): Built | nu
     }
   }
 
+  // No database for this circuit (or none stored yet): find the corners in the lap
+  // itself. Detection runs on lap A and both laps are read through the same groups, so
+  // the rows stay comparable.
+  const fromDatabase = corners !== null && corners.length > 0;
+  const groups = fromDatabase ? corners : detectCorners(a);
   const cornerMetrics =
-    corners && corners.length > 0
-      ? cornerDeltas(cornerPerformance(a, corners), cornerPerformance(b, corners), trace)
+    groups.length > 0
+      ? cornerDeltas(cornerPerformance(a, groups), cornerPerformance(b, groups), trace)
       : null;
 
   return {
@@ -166,6 +174,7 @@ function build(a: LapSeries, b: LapSeries, corners: Corner[] | null): Built | nu
     biggestLossMs,
     biggestLossAtM,
     corners: cornerMetrics,
+    cornersFromDatabase: fromDatabase,
   };
 }
 
@@ -373,6 +382,7 @@ export function CompareCharts({
         <div>
           <p className="mb-3 font-mono text-[11px] uppercase tracking-widest text-muted">
             Corner by corner — {b.label} relative to {a.label}
+            {built.cornersFromDatabase ? "" : " · detected from braking zones"}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
@@ -389,8 +399,19 @@ export function CompareCharts({
               </thead>
               <tbody className="font-mono text-xs tabular-nums">
                 {built.corners.map((corner) => (
-                  <tr key={corner.label} className="border-b border-line/60">
-                    <td className="py-1.5 pr-3">{corner.label}</td>
+                  <tr
+                    key={corner.label}
+                    className={`border-b border-line/60 ${corner.verified === false ? "opacity-50" : ""}`}
+                    title={
+                      corner.verified === false
+                        ? "No braking in this corner's stretch — the marker may be misplaced or the corner is flat out, so these numbers are not a measurement"
+                        : undefined
+                    }
+                  >
+                    <td className="py-1.5 pr-3">
+                      {corner.label}
+                      {corner.verified === false ? " ?" : ""}
+                    </td>
                     <td className="py-1.5 pr-3 text-right text-muted">
                       {corner.apexSpeedA.toFixed(0)}
                     </td>
@@ -439,14 +460,30 @@ export function CompareCharts({
             </table>
           </div>
           <p className="mt-3 text-xs leading-relaxed text-muted">
-            Corner positions come from FastF1&apos;s curated corner database, not from
-            curvature — the position channel is too coarse to find corners (see
-            `analysis/lateral_accel.py`). Apex speed is the lowest speed in the corner's own
-            stretch of lap, capped at 80 m around its marker, so neighbouring corners never
-            report the same minimum. Brake is how much later (+) or earlier (−) {b.label} got
-            on the brakes; a corner taken flat out has no braking point and shows a dash. At
-            one sample every ~{Math.round(built.sampleIntervalMs)} ms, a few km/h or a couple
-            of metres is below the resolution of this data.
+            {built.cornersFromDatabase ? (
+              <>
+                Corner positions come from FastF1&apos;s curated corner database. Never from
+                curvature: the position channel is too coarse to find corners (see
+                `analysis/lateral_accel.py`). Apex speed is the lowest speed in the
+                corner&apos;s own stretch of lap, capped at 80 m around its marker, so
+                neighbouring corners never report the same minimum. A corner whose minimum
+                sits on the edge of a still-falling profile is skipped — that minimum belongs
+                to the next corner, not this one. A row marked ? had no braking in its stretch
+                on either lap — the marker may sit off the real corner, so it is not a
+                measurement.
+              </>
+            ) : (
+              <>
+                This circuit has no corner database, so the corners above are braking zones
+                found in {a.label}&apos;s lap — labelled C1, C2, … in lap order, not official
+                corner numbers. Only zones that actually slow the car count; gentle lift-off
+                corners are missing rather than invented.
+              </>
+            )}{" "}
+            Brake is how much later (+) or earlier (−) {b.label} got on the brakes; a corner
+            taken flat out has no braking point and shows a dash. At one sample every ~
+            {Math.round(built.sampleIntervalMs)} ms, a few km/h or a couple of metres is below
+            the resolution of this data.
           </p>
         </div>
       ) : null}

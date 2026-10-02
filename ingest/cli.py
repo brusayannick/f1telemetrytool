@@ -317,6 +317,78 @@ def cmd_backfill(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def cmd_corners(args: argparse.Namespace) -> int:
+    """Backfill curated corner positions onto events that lack them.
+
+    Corners live on the event, not the session, so one loaded session per event is
+    enough. The session is loaded with telemetry (needed once: FastF1 matches each corner
+    marker against the fastest lap's positional trace to compute its distance along the
+    lap), but nothing is stored except the corners. Events that already carry corners are
+    skipped. A dry run reports what would change.
+    """
+    import fastf1
+
+    init_cache(args.cache)
+    client = ConvexIngestClient()
+
+    years = list(range(args.from_year, args.to_year + 1))
+    if args.newest_first:
+        years.reverse()
+
+    updated = 0
+    skipped = 0
+    failures = 0
+    for year in years:
+        try:
+            schedule = fastf1.get_event_schedule(year, include_testing=False)
+        except Exception as err:  # noqa: BLE001 - continue with the next season
+            failures += 1
+            print(f"{year} failed: {type(err).__name__}: {err}", file=sys.stderr)
+            continue
+        for _, event in schedule.iterrows():
+            round_number = int(event["RoundNumber"])
+            if round_number == 0:
+                continue
+            session_name = event.get("Session5") or event.get("Session4")
+            if not isinstance(session_name, str) or not session_name:
+                continue
+            status = client.status_for(year, round_number, session_name)
+            if status is None:
+                continue
+            event_id = status.get("eventId")
+            if status.get("hasCorners"):
+                skipped += 1
+                continue
+            label = f"{year} r{round_number} {event['EventName']}"
+            try:
+                session = load_session(year, round_number, session_name, telemetry=True)
+            except Exception as err:  # noqa: BLE001 - one bad event must not stop the run
+                failures += 1
+                print(f"  {label}: load failed: {err}", file=sys.stderr)
+                continue
+            rows = nz.corner_rows(session)
+            if not rows:
+                skipped += 1
+                print(f"  {label}: no corner data")
+                continue
+            if args.limit is not None and updated >= args.limit:
+                print(f"limit reached ({updated} events)")
+                return 1 if failures else 0
+            if args.dry_run:
+                print(f"  {label}: would store {len(rows)} corners")
+                updated += 1
+                continue
+            try:
+                client.upsert_event_corners(event_id, rows)
+                updated += 1
+                print(f"  {label}: {len(rows)} corners")
+            except Exception as err:  # noqa: BLE001
+                failures += 1
+                print(f"  {label}: store failed: {err}", file=sys.stderr)
+    print(f"corners backfilled: {updated} events, {skipped} skipped, {failures} failed")
+    return 1 if failures else 0
+
+
 def cmd_weekend(args: argparse.Namespace) -> int:
     """Ingest every session of one event, skipping sessions already complete."""
     import fastf1
@@ -519,6 +591,25 @@ def build_parser() -> argparse.ArgumentParser:
         "--force", action="store_true", help="Re-ingest sessions already marked complete"
     )
     p_weekend.set_defaults(func=cmd_weekend)
+
+    p_corners = subparsers.add_parser(
+        "corners", help="Backfill corner positions onto events (no telemetry)"
+    )
+    p_corners.add_argument("--from-year", type=int, required=True)
+    p_corners.add_argument("--to-year", type=int, required=True)
+    p_corners.add_argument(
+        "--newest-first",
+        action="store_true",
+        help="Iterate seasons newest first (most relevant data lands first)",
+    )
+    p_corners.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Stop after N events (useful for smoke tests)",
+    )
+    p_corners.add_argument("--dry-run", action="store_true")
+    p_corners.set_defaults(func=cmd_corners)
 
     p_calendar = subparsers.add_parser(
         "calendar", help="Sync season/event/session rows for a year range (no telemetry)"

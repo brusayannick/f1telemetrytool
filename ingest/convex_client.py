@@ -111,6 +111,13 @@ class ConvexIngestClient:
     def upsert_session(self, event_id: str, session: dict[str, Any]) -> str:
         return self._post("upsertSession", {"eventId": event_id, **session})
 
+    def upsert_event_corners(
+        self, event_id: str, corners: list[dict[str, Any]]
+    ) -> str:
+        return self._post(
+            "upsertEventCorners", {"eventId": event_id, "corners": corners}
+        )
+
     def set_session_status(
         self,
         session_id: str,

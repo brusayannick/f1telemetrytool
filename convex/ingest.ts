@@ -146,6 +146,26 @@ export const upsertEvent = internalMutation({
   },
 });
 
+const cornerValidator = v.array(
+  v.object({
+    number: v.number(),
+    letter: v.optional(v.string()),
+    x: v.number(),
+    y: v.number(),
+    angle: v.number(),
+    distance: v.number(),
+  }),
+);
+
+/** Attach curated corner positions to an event without touching anything else. */
+export const upsertEventCorners = internalMutation({
+  args: { eventId: v.id("events"), corners: cornerValidator },
+  handler: async (ctx, { eventId, corners }) => {
+    await ctx.db.patch(eventId, { corners });
+    return eventId;
+  },
+});
+
 export const upsertSession = internalMutation({
   args: {
     eventId: v.id("events"),

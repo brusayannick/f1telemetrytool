@@ -79,6 +79,30 @@ http.route({
 });
 
 http.route({
+  path: "/ingest/upsertEventCorners",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!authorized(request)) return unauthorized();
+    const body = (await request.json()) as {
+      eventId: string;
+      corners: {
+        number: number;
+        letter?: string;
+        x: number;
+        y: number;
+        angle: number;
+        distance: number;
+      }[];
+    };
+    const id = await ctx.runMutation(internal.ingest.upsertEventCorners, {
+      eventId: body.eventId as Id<"events">,
+      corners: body.corners,
+    });
+    return json(id);
+  }),
+});
+
+http.route({
   path: "/ingest/upsertSession",
   method: "POST",
   handler: httpAction(async (ctx, request) => {

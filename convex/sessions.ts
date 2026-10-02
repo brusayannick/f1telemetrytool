@@ -122,8 +122,10 @@ export const statusFor = query({
     if (!session) return null;
     return {
       sessionId: session._id,
+      eventId: event._id,
       ingestStatus: session.ingestStatus,
       telemetryAvailability: session.telemetryAvailability,
+      hasCorners: (event.corners?.length ?? 0) > 0,
     };
   },
 });
