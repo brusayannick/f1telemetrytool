@@ -27,7 +27,13 @@ TELEMETRY_CHANNELS = [
     "drs",    # DRS code (0-14)
     "x",      # position, 1/10 m
     "y",
-    "z",
+    "z",      # elevation, 1/10 m
+    # Gap to the car ahead in metres; NaN while leading. The feed offers this directly,
+    # and it is the traffic context that separates "slow because of traffic" from
+    # "drove badly" — reconstructing it from position and lap times would be guesswork.
+    "ahead",
+    # Lap progress 0-1, independent of any drift in the distance channel.
+    "rel",
 ]
 
 SESSION_NAMES = {
@@ -441,20 +447,33 @@ def telemetry_payload(
         "z": telemetry["Z"].to_numpy(dtype="float32"),
     }
 
+    # Channels the feed does not always carry — older seasons lack them entirely. The
+    # payload advertises exactly what it holds, so the client degrades gracefully instead
+    # of plotting a channel of zeros.
+    optional = {
+        "ahead": "DistanceToDriverAhead",
+        "rel": "RelativeDistance",
+    }
+    for name, column in optional.items():
+        if column in telemetry.columns:
+            channels[name] = telemetry[column].to_numpy(dtype="float32")
+
+    order = [name for name in TELEMETRY_CHANNELS if name in channels]
+
     payload = {
         "n": int(len(t_rel)),
         # absolute session time of the first sample, so clients can map lap
         # session-times onto this slice
         "t0ms": int(t_ms[0]),
-        "order": TELEMETRY_CHANNELS,
-        "channels": {name: channels[name].tobytes() for name in TELEMETRY_CHANNELS},
+        "order": order,
+        "channels": {name: channels[name].tobytes() for name in order},
     }
     packed = msgpack.packb(payload, use_bin_type=True)
     data = gzip.compress(packed, compresslevel=6)
 
     info = {
         "format": TELEMETRY_FORMAT,
-        "channels": TELEMETRY_CHANNELS,
+        "channels": order,
         "sampleCount": int(len(t_rel)),
         "bytes": len(data),
         "freqHz": None,

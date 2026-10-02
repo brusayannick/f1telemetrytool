@@ -72,14 +72,25 @@ export function TelemetryChart({ url, lap }: Props) {
     }
 
     // Only the selected series are evaluated, so a derived channel nobody asked for
-    // costs nothing.
-    const active = SERIES.filter((spec) => selected.includes(spec.key));
+    // costs nothing; a series whose channel this payload does not carry is dropped
+    // rather than plotted as a line of zeros.
+    const active = SERIES.filter(
+      (spec) => selected.includes(spec.key) && (spec.available?.(telemetry) ?? true),
+    );
     const data: uPlot.AlignedData = [
       x,
       ...active.map((spec) => spec.values(telemetry, start, end)),
     ];
 
-    return { data, active };
+    // Axis ranges are resolved here, where the telemetry is in hand: elevation depends on
+    // the circuit and the traffic gap on the session.
+    const ranges: Partial<Record<string, [number, number]>> = {};
+    for (const axis of new Set(active.map((spec) => spec.axis))) {
+      const spec = AXES[axis];
+      ranges[axis] = typeof spec.range === "function" ? spec.range(telemetry) : spec.range;
+    }
+
+    return { data, active, ranges };
   }, [telemetry, lap, selected]);
 
   const toggle = (key: string) => {
@@ -101,7 +112,7 @@ export function TelemetryChart({ url, lap }: Props) {
     const usedAxes = Array.from(new Set(chart.active.map((spec) => spec.axis)));
     const scales: uPlot.Scales = { x: { time: false } };
     for (const key of usedAxes) {
-      scales[key] = { range: AXES[key].range };
+      scales[key] = { range: chart.ranges[key] };
     }
 
     const axes: uPlot.Axis[] = [
@@ -170,7 +181,9 @@ export function TelemetryChart({ url, lap }: Props) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
-        {SERIES.map((spec) => {
+        {SERIES.filter((spec) =>
+          telemetry ? (spec.available?.(telemetry) ?? true) : false,
+        ).map((spec) => {
           const on = selected.includes(spec.key);
           return (
             <button

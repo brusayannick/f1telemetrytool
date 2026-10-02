@@ -13,10 +13,20 @@ import type { Telemetry } from "@/lib/telemetry";
  * - **Derived series are labelled as such**, because a computed acceleration that looks
  *   authoritative is exactly the kind of number that misleads later.
  */
-export type AxisKey = "speed" | "percent" | "rpm" | "gear" | "drs" | "accel" | "yaw";
+export type AxisKey =
+  | "speed"
+  | "percent"
+  | "rpm"
+  | "gear"
+  | "drs"
+  | "accel"
+  | "yaw"
+  | "gap"
+  | "elev";
 
 export type AxisSpec = {
-  range: [number, number];
+  /** Fixed range, or one derived from the data — elevation depends on the circuit. */
+  range: [number, number] | ((telemetry: Telemetry) => [number, number]);
   label: string;
   side: 0 | 1;
 };
@@ -29,6 +39,39 @@ export const AXES: Record<AxisKey, AxisSpec> = {
   drs: { range: [0, 14], label: "DRS", side: 1 },
   accel: { range: [-6, 6], label: "m/s²", side: 1 },
   yaw: { range: [-120, 120], label: "°/s", side: 1 },
+  gap: {
+    range: (telemetry) => {
+      // Most of a lap the gap is either small (traffic) or absent (leading, NaN). A fixed
+      // axis would flatten the interesting part, so scale to the track's own spread.
+      const ahead = telemetry.channels.ahead;
+      if (!ahead || ahead.length === 0) return [0, 100];
+      const values = Array.from(ahead).filter((value) => Number.isFinite(value));
+      if (values.length === 0) return [0, 100];
+      values.sort((a, b) => a - b);
+      const high = values[Math.floor(values.length * 0.9)] ?? values[values.length - 1];
+      return [0, Math.max(100, Math.ceil(high / 50) * 50)];
+    },
+    label: "m",
+    side: 1,
+  },
+  elev: {
+    range: (telemetry) => {
+      const z = telemetry.channels.z;
+      if (!z || z.length === 0) return [0, 10];
+      let low = Infinity;
+      let high = -Infinity;
+      for (let i = 0; i < z.length; i += 1) {
+        if (z[i] < low) low = z[i];
+        if (z[i] > high) high = z[i];
+      }
+      // decimetres to metres, rounded outward to whole metres
+      const from = Math.floor(low / 10);
+      const to = Math.ceil(high / 10);
+      return [from, to === from ? from + 10 : to];
+    },
+    label: "m",
+    side: 1,
+  },
 };
 
 export type SeriesSpec = {
@@ -42,8 +85,16 @@ export type SeriesSpec = {
   kind: "stored" | "derived";
   /** Shown as a tooltip so the provenance of a line is never ambiguous. */
   note: string;
+  /** False when this payload predates the channel — such series are hidden entirely. */
+  available?: (telemetry: Telemetry) => boolean;
   values: (telemetry: Telemetry, start: number, end: number) => Float64Array;
 };
+
+/** Whether a payload actually carries a channel (older files may not). */
+function has(telemetry: Telemetry, name: string): boolean {
+  const channel = (telemetry.channels as Record<string, Float32Array | undefined>)[name];
+  return channel !== undefined && channel.length === telemetry.n;
+}
 
 function slice(channel: Float32Array, start: number, end: number): Float64Array {
   const out = new Float64Array(end - start);
@@ -231,6 +282,47 @@ export const SERIES: SeriesSpec[] = [
     kind: "derived",
     note: "derived from the path — a steering proxy, not steering angle",
     values: yawRate,
+  },
+  {
+    key: "ahead",
+    label: "Gap ahead",
+    axis: "gap",
+    color: "#c92a2a",
+    width: 1.25,
+    kind: "stored",
+    note: "stored channel: metres to the car ahead (empty while leading) — the traffic context",
+    available: (telemetry) => has(telemetry, "ahead"),
+    values: (telemetry, start, end) => slice(telemetry.channels.ahead, start, end),
+  },
+  {
+    key: "elev",
+    label: "Elevation",
+    axis: "elev",
+    color: "#5f3dc4",
+    width: 1.5,
+    kind: "stored",
+    note: "stored channel z: circuit elevation in metres",
+    available: (telemetry) => has(telemetry, "z"),
+    values: (telemetry, start, end) => {
+      const out = slice(telemetry.channels.z, start, end);
+      for (let i = 0; i < out.length; i += 1) out[i] /= 10; // decimetres to metres
+      return out;
+    },
+  },
+  {
+    key: "progress",
+    label: "Lap progress",
+    axis: "percent",
+    color: "#868e96",
+    width: 1,
+    kind: "stored",
+    note: "stored channel: fraction of the lap completed",
+    available: (telemetry) => has(telemetry, "rel"),
+    values: (telemetry, start, end) => {
+      const out = slice(telemetry.channels.rel, start, end);
+      for (let i = 0; i < out.length; i += 1) out[i] *= 100;
+      return out;
+    },
   },
 ];
 

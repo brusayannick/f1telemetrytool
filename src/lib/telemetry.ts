@@ -10,9 +10,11 @@ export const TELEMETRY_CHANNELS = [
   "thr", // 0-100 %
   "brk", // 0 or 100
   "drs", // 0-14
-  "x",
+  "x", // position, decimetres
   "y",
-  "z",
+  "z", // elevation, decimetres
+  "ahead", // metres to the car ahead; NaN while leading (newer payloads only)
+  "rel", // lap progress 0-1 (newer payloads only)
 ] as const;
 
 export type TelemetryChannel = (typeof TELEMETRY_CHANNELS)[number];
