@@ -443,12 +443,6 @@ MAD-Regel markiert, Klick springt zur Runde.
 **Zweck:** „wie früh kommt er zurück ans Gas" — oft die halbe Runde.
 **Verhalten:** je Kurve Distanz und Zeit vom Scheitel bis 100 % Throttle; Verteilung über
 die Runden.
-**Abnahme:** Kurven, die nie 100 % erreichen, sind als solche ausgewiesen.
-
-### F23 — Gasannahme
-**Zweck:** „wie früh kommt er zurück ans Gas" — oft die halbe Runde.
-**Verhalten:** je Kurve Distanz und Zeit vom Scheitel bis 100 % Throttle; Verteilung über
-die Runden.
 **Abnahme:** Kurven, die nie 100 % erreichen, sind als solche ausgewiesen. **Stand:**
 umgesetzt im Konsistenz-Panel — Median und Spanne der Distanz Scheitel → 100 % Gas, n, und
 die Runden, die hier nie Vollgas erreichen, namentlich ausgewiesen statt als 0 m gezählt.
