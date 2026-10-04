@@ -1359,18 +1359,17 @@ vorigen übernehmen. Die Katalog-Zeile in §6.3 wurde korrigiert.
 
 **Behoben:** `consistency-panel` zählt einen Bremspunkt nur, wenn er in seinem eigenen
 Segment liegt; sonst erscheint er als **⤺** mit Grund statt im Median. `workbench-chart`s
-Spalte „brake from" schreibt **⤺ prev** statt einer Zahl. Gemessen: T2s Median ist damit
-nicht mehr T1s Wert.
+Spalte „brake from" schreibt **⤺ prev** statt einer Zahl. `cornerDeltas` liefert
+`brakeDeltaM = null`, wenn einer der beiden Werte geerbt ist — **identische `brakeDist`
+auf benachbarten Kurven ist das erkennbare Signal** —, sodass die Spalte „Brake" und der
+Ranglisten-Text keinen Urteilssatz mehr aus einer fremden Bremszone bilden.
 
-**Noch nicht behoben — drei Verbraucher tragen den rohen Wert weiter:**
-1. `compare-charts` — die Spalte **„Brake"** und der Ranglisten-Text (`rankLosses`:
-   „N m später gebremst") wiederholen für T2 die Δ von T1, **mit Urteilssatz**.
-2. `corner-breakdown` — `brakeDist` ist die Grenze zwischen `approachMs` und `brakeMs`.
-   Bei einem geerbten Wert klemmt sie auf den Segmentanfang, und der **ganze Anlauf** der
-   späteren Kurve wird im Compare als „bremsen" beschriftet.
-3. Der Plan selbst, §6.3 — erledigt.
-**Nächster Schritt:** dieselbe Positionsprüfung in `cornerDeltas` und `corner-breakdown`,
-wo der Wert über `cornerPerformance` direkt kommt und gar nicht geschützt ist.
+**Noch offen:** `corner-breakdown` nutzt `brakeDist` weiter als Grenze zwischen
+`approachMs` und `brakeMs`. Bei einem geerbten Wert klemmt sie auf den Segmentanfang, und
+der ganze Anlauf der späteren Kurve wird als „bremsen" beschriftet. Dieselbe
+Erbprüfung gehört dort hin; sie steht hier, damit sie nicht vergessen wird.
+**Nächster Schritt:** die `inheritedBrakeLabels`-Prüfung in `corner-breakdown`
+übernehmen, wo der Wert über `cornerPerformance` direkt kommt.
 
 ### B22 — Der Verkehrsfilter lässt zwei von achtzehn Runden übrig
 **Messung:** Das Konsistenz-Panel zählt auf Abu Dhabi Q, Fahrer 1 **2 Runden** von 18 — die

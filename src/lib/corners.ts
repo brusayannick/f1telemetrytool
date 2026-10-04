@@ -347,13 +347,41 @@ export function cornerDeltas(
   // lap. The increments tile the lap, so they still add up to the lap total.
   let previousExit = 0;
 
+  // A corner can report the *previous* corner's braking point: `cornerPerformance` looks
+  // back up to 400 m for a braking run and that window is not clamped at the neighbouring
+  // corner's midpoint, so two apexes inside one continuous braking run resolve to the same
+  // `brakeDist` (B21). Identical values on adjacent corners is the detectable signal. A
+  // delta built from it would credit this corner with a braking difference that happened in
+  // the one before it — and the ranking below turns that into a sentence with a verdict.
+  const inheritedBrakeLabels = (list: CornerPerformance[]): Set<string> => {
+    const inherited = new Set<string>();
+    for (let i = 1; i < list.length; i += 1) {
+      const current = list[i];
+      const previous = list[i - 1];
+      if (
+        current.brakeDist !== null &&
+        previous.brakeDist !== null &&
+        current.brakeDist === previous.brakeDist
+      ) {
+        inherited.add(current.label);
+      }
+    }
+    return inherited;
+  };
+
+  const inheritedA = inheritedBrakeLabels(a);
+  const inheritedB = inheritedBrakeLabels(b);
+
   for (let index = 0; index < a.length; index += 1) {
     const left = a[index];
     const next = a[index + 1];
     const right = rightByLabel.get(left.label);
     if (!right) continue;
     const brakeDeltaM =
-      left.brakeDist === null || right.brakeDist === null
+      left.brakeDist === null ||
+      right.brakeDist === null ||
+      inheritedA.has(left.label) ||
+      inheritedB.has(right.label)
         ? null
         : right.brakeDist - left.brakeDist;
 
