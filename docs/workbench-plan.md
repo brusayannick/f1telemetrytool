@@ -1364,12 +1364,20 @@ Spalte „brake from" schreibt **⤺ prev** statt einer Zahl. `cornerDeltas` lie
 auf benachbarten Kurven ist das erkennbare Signal** —, sodass die Spalte „Brake" und der
 Ranglisten-Text keinen Urteilssatz mehr aus einer fremden Bremszone bilden.
 
-**Noch offen:** `corner-breakdown` nutzt `brakeDist` weiter als Grenze zwischen
-`approachMs` und `brakeMs`. Bei einem geerbten Wert klemmt sie auf den Segmentanfang, und
-der ganze Anlauf der späteren Kurve wird als „bremsen" beschriftet. Dieselbe
-Erbprüfung gehört dort hin; sie steht hier, damit sie nicht vergessen wird.
-**Nächster Schritt:** die `inheritedBrakeLabels`-Prüfung in `corner-breakdown`
-übernehmen, wo der Wert über `cornerPerformance` direkt kommt.
+**Behoben (alle vier Verbraucher):** `consistency-panel` zählt einen Bremspunkt nur, wenn er
+in seinem eigenen Segment liegt; `workbench-chart`s Spalte „brake from" schreibt **⤺ prev**;
+`cornerDeltas` liefert `brakeDeltaM = null` bei geerbtem Wert; und `corner-breakdown`
+behauptet **keine** Bremsphase mehr, wenn die Kurve keinen eigenen Bremspunkt hat —
+`brakePhaseAvailable: false`, die Anfahrt und das Bremsen stehen zusammen in `approachMs`.
+
+**Und dabei ein älterer Fehler gefunden:** `corner-breakdown` hatte
+`brakeStart = performance.brakeDist ?? segmentFrom`. Der `??`-Zweig galt für Kurven, die
+**nie bremsen** — bei einem Vollgas-Knick wurde die **ganze Anfahrt als Bremsphase**
+ausgewiesen. F14 verlangt ausdrücklich: „eine Kurve ohne Bremsung hat keine Bremsphase
+(nicht eine mit Dauer 0)". Der Fehler stand seit dem Einbau von F15 im Code und war nicht
+Teil von B21 — er hatte nur dieselbe Wurzel: eine Phasengrenze, die erfunden wird, wo keine
+messbar ist.
+**Status: erledigt** — alle vier Verbraucher behoben, plus der `??`-Fehler.
 
 ### B22 — Der Verkehrsfilter lässt zwei von achtzehn Runden übrig
 **Messung:** Das Konsistenz-Panel zählt auf Abu Dhabi Q, Fahrer 1 **2 Runden** von 18 — die
@@ -1401,7 +1409,7 @@ Die drei verschiedenen Grundgesamtheiten sollten sichtbar sein.
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
 | B22 | offen — der Verkehrsfilter lässt 2 von 18 Runden; drei Panels zählen drei verschiedene Grundgesamtheiten |
-| B21 | **Ursache bewiesen, teilweise behoben** — `brakeFromM <= fromM` ist strukturell immer wahr (Gleichheit ist der Normalfall), zwei Kurven können denselben Bremslauf erben; Konsistenz-Panel und Lane-Tabelle geschützt, `compare-charts` und `corner-breakdown` noch nicht; die Plan-Definition war zusätzlich falsch |
+| B21 | **erledigt an allen vier Verbrauchern** — `brakeFromM <= fromM` ist strukturell immer wahr, zwei Kurven können denselben Bremslauf erben; Panel, Lane-Tabelle, Compare und Breakdown behoben, die Plan-Definition korrigiert, und der `??`-Fehler in `corner-breakdown` mitgefunden |
 | B20 | erledigt — der Fetch war bereits dedupliziert (1 statt 3), gemessen; die CPU-Doppelarbeit ist als **unmessiert** dokumentiert und wird bewusst nicht „optimiert“ |
 | B19 | erledigt — Sektorzeiten waren da und ungelesen, F21 gebaut; der Datenvertrag nennt Sektoren nicht, das ist notiert |
 | B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |

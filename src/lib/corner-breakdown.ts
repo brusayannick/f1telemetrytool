@@ -29,6 +29,15 @@ export type CornerBreakdown = {
   residualMs: number;
   /** The measured corner delta this decomposes, in ms. */
   totalMs: number;
+  /**
+   * False when this corner has no braking point of its own, so `brakeMs` is zero because no
+   * boundary can be claimed — not because the corner is free of braking.
+   *
+   * Either the driver never braked here (a flat-out kink, `brakeDist === null`) or the
+   * braking point belongs to the previous corner (B21). In both cases the run-in and the
+   * braking are reported together in `approachMs`.
+   */
+  brakePhaseAvailable: boolean;
 };
 
 /** Integration step. 2 m is well below the ~30 m a sample covers at racing speed. */
@@ -126,10 +135,32 @@ export function cornerBreakdown(
     // clamp a corner whose apex sits close to its clamped end produces windows that run past
     // the segment — which showed up as a *negative* residual, larger than the corner itself.
     const clamp = (value: number) => Math.max(segmentFrom, Math.min(value, segmentTo));
-    const brakeStart = performance.brakeDist ?? segmentFrom;
-    const b1 = clamp(brakeStart);
-    const b2 = Math.max(b1, clamp(apex - APEX_HALF_WINDOW_M));
+
+    // A corner only has a braking phase if it has its own braking point.
+    //
+    // Two cases where it does not, and both used to be labelled as braking anyway:
+    // - **Never braked** (a flat-out kink): `brakeDist` is null. F14's acceptance says such a
+    //   corner has *no* braking phase, not one of duration zero — but `?? segmentFrom` opened
+    //   the phase at the segment start and put the entire run-up into it.
+    // - **Inherited** (B21): the braking point belongs to the previous corner, so it lies
+    //   before `segmentFrom` and the clamp pinned it there — with the same effect.
+    //
+    // The honest split is to report the run-in and the braking together: we do not know where
+    // braking began inside this window, so no boundary is claimed. `brakeMs` becomes zero and
+    // the flag says why, rather than a phase asserting something the data does not say.
+    const inherited =
+      index > 0 &&
+      performance.brakeDist !== null &&
+      performances[index - 1].brakeDist !== null &&
+      performance.brakeDist === performances[index - 1].brakeDist;
+    const ownBrakeDist = inherited ? null : performance.brakeDist;
+
+    const b2 = clamp(apex - APEX_HALF_WINDOW_M);
     const b3 = Math.max(b2, clamp(apex + APEX_HALF_WINDOW_M));
+    const b1 =
+      ownBrakeDist === null
+        ? b2
+        : Math.min(Math.max(segmentFrom, clamp(ownBrakeDist)), b2);
 
     // The four windows tile [segmentFrom, segmentTo] exactly, in order.
     const approachMs = paceIntegralMs(a, b, segmentFrom, b1);
@@ -148,6 +179,9 @@ export function cornerBreakdown(
       // Only what the windows missed — integration step and window rounding.
       residualMs: totalMs - (approachMs + brakeMs + apexMs + exitMs),
       totalMs,
+      // False when the corner has no braking point of its own, so `brakeMs` is not a phase
+      // boundary but a statement that none is available.
+      brakePhaseAvailable: ownBrakeDist !== null,
     });
   }
 
