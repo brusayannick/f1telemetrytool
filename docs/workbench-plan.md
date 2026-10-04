@@ -445,6 +445,17 @@ MAD-Regel markiert, Klick springt zur Runde.
 die Runden.
 **Abnahme:** Kurven, die nie 100 % erreichen, sind als solche ausgewiesen.
 
+### F23 — Gasannahme
+**Zweck:** „wie früh kommt er zurück ans Gas" — oft die halbe Runde.
+**Verhalten:** je Kurve Distanz und Zeit vom Scheitel bis 100 % Throttle; Verteilung über
+die Runden.
+**Abnahme:** Kurven, die nie 100 % erreichen, sind als solche ausgewiesen. **Stand:**
+umgesetzt im Konsistenz-Panel — Median und Spanne der Distanz Scheitel → 100 % Gas, n, und
+die Runden, die hier nie Vollgas erreichen, namentlich ausgewiesen statt als 0 m gezählt.
+Gemessen: T1 43,1 m, T5 48,8 m, T2/T3/T4 0,0 m (Vollgas ab Scheitel) — plausibel für eine
+Haarnadel gegen schnelle Knicks. **Offen:** die Zeitkomponente (Distanz ist da, Zeit nicht)
+und die Verteilung über die Runden statt nur Median und Spanne.
+
 ### F24 — Bremsdauer und Trail-Anteil
 **Zweck:** Bremsstil vergleichbar machen.
 **Verhalten:** je Kurve Bremsdauer, Bremsweg, Anteil der Runde unter Bremsung, Anteil mit
@@ -1317,6 +1328,36 @@ ein Cache auf (Runde, Kurven) gerechtfertigt — nicht vorher.
 **Status: gemessen und abgeschlossen** — die Netzwerkseite ist nachweislich dedupliziert,
 die CPU-Seite ist als offen **mit fehlender Messung** dokumentiert, nicht als Fehler.
 
+### B21 — Der Bremspunkt kann zur falschen Kurve gehören
+**Messung:** Nach dem Einbau von F23 zeigt das Konsistenz-Panel auf Abu Dhabi Q, Fahrer 1:
+**T1 und T2 haben identische Bremswerte** — Median 301,3 m, Spanne 294,2–308,5 m in beiden
+Zeilen. Zwei verschiedene Kurven werden nicht auf den Meter gleich gebremst. T1s Median
+ist plausibel (eigene Bremszone), T2s ist **T1s Wert**: T2s Fenster öffnet, während T1 noch
+gebremst wird, und `brakeDist` ist definiert als „letzte Bremsprobe vor dem eigenen
+Scheitel im eigenen Fenster" — die liegt dann in T1s Bremszone.
+**Konsequenz:** F20 (Bremspunkt-Streuung) und die Spalte `brake med` können einer Kurve
+den Bremspunkt einer anderen zuschreiben. Das ist derselbe Fehlertyp wie B17 — eine Zahl,
+die plausibel aussieht und zur falschen Sache gehört. Die Datenlage macht es schlimmer:
+mit n = 2 fällt es nur auf, weil die beiden Werte **exakt gleich** sind; bei n = 15 wäre es
+ald normale Streuung untergegangen.
+**Status: offen** — der nächste Schritt ist eine Messung: für jede Kurve `brakeFromM`
+gegen `fromM` und gegen den Ausgang der vorigen Kurve stellen. Liegt der Bremspunkt **vor**
+dem eigenen Fensteranfang oder innerhalb der vorigen Kurve, ist er nicht der eigene.
+
+### B22 — Der Verkehrsfilter lässt zwei von achtzehn Runden übrig
+**Messung:** Das Konsistenz-Panel zählt auf Abu Dhabi Q, Fahrer 1 **2 Runden** von 18 — die
+übrigen 16 fallen durch Box, Ungenauigkeit, Gelb/SC oder den Verkehrsfilter. Die Matrix
+zählt 13 Runden, das Sektor-Panel 6: **drei Panels, drei verschiedene Grundgesamtheiten**,
+weil jeder andere Filter anwendet.
+**Konsequenz:** Bei n = 2 ist jeder Median und jede MAD-Kennzahl fragil — der Plan verlangt
+robuste Kennzahlen, aber Robustheit braucht Stichprobe. Die 300 m aus §7.2 sind der
+Standard für den Verkehrsfilter, und in einer Qualifying-Session mit 20 Autos auf der
+Strecke sind 300 m sehr streng. Der Wert ist einstellbar (50–1000 m), aber es gibt noch
+kein Einstellungsmenü (F44) — bis dahin ist der Standard nicht änderbar.
+**Status: offen** — braucht eine Entscheidung, keinen Code: entweder den Standard für
+Qualifying-Sessions lockern, oder im UI ausweisen, dass die Grundgesamtheit klein ist.
+Die drei verschiedenen Grundgesamtheiten sollten sichtbar sein.
+
 ### Was davon jetzt behebbar ist
 
 | Befund | Aktion |
@@ -1332,6 +1373,8 @@ die CPU-Seite ist als offen **mit fehlender Messung** dokumentiert, nicht als Fe
 | B12 | erledigt — 17 falsche Aussagen in beiden READMEs korrigiert |
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
+| B22 | offen — der Verkehrsfilter lässt 2 von 18 Runden; drei Panels zählen drei verschiedene Grundgesamtheiten |
+| B21 | offen — der Bremspunkt kann zur falschen Kurve gehören (T1/T2 byte-identisch bei n = 2); Messung benannt |
 | B20 | erledigt — der Fetch war bereits dedupliziert (1 statt 3), gemessen; die CPU-Doppelarbeit ist als **unmessiert** dokumentiert und wird bewusst nicht „optimiert“ |
 | B19 | erledigt — Sektorzeiten waren da und ungelesen, F21 gebaut; der Datenvertrag nennt Sektoren nicht, das ist notiert |
 | B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |

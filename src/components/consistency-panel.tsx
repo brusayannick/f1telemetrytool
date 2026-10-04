@@ -48,6 +48,14 @@ type CornerStats = {
   brakeOutliers: { lapNumber: number; value: number }[];
   /** Laps that never braked for this corner, so they cannot inform its braking point. */
   noBrakeLaps: number[];
+  /** F23 — metres from the apex to the first full-throttle sample. */
+  nThr: number;
+  thrMedianM: number;
+  thrMin: number;
+  thrMax: number;
+  thrOutliers: { lapNumber: number; value: number }[];
+  /** Laps that never reached 100 % throttle in this corner at all. */
+  noFullThrottleLaps: number[];
 };
 
 function median(values: number[]): number {
@@ -69,7 +77,7 @@ const oneDp = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * F19, F20 and F22 — consistency across the laps of one driver.
+ * F19, F20, F22 and F23 — consistency across the laps of one driver.
  *
  * Reads the same decomposition as the segment matrix, from the same single telemetry
  * request, and asks a different question: not "where did this lap lose time" but "how
@@ -121,6 +129,8 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
     const apexByLabel = new Map<string, { lapNumber: number; value: number }[]>();
     const brakeByLabel = new Map<string, { lapNumber: number; value: number }[]>();
     const noBrakeByLabel = new Map<string, number[]>();
+    const throttleByLabel = new Map<string, { lapNumber: number; value: number }[]>();
+    const noThrottleByLabel = new Map<string, number[]>();
     const order: string[] = [];
 
     for (const lap of laps) {
@@ -179,12 +189,43 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
           list.push(lap.lapNumber);
           noBrakeByLabel.set(segment.label, list);
         }
+
+        // F23 — how early the throttle came back. Measured from the apex to the first
+        // sample at full throttle, which is the number a driver actually talks about:
+        // "I'm a car length later on the power here than him". A lap that never reaches
+        // 100 % in this corner is counted, not silently dropped — the plan's acceptance
+        // says so, and it also matters because those are the corners where the throttle
+        // trace says something different from the lap time.
+        const apexM = segment.apexM;
+        if (apexM !== null) {
+          let fullThrottleM: number | null = null;
+          for (let i = 0; i < series.dist.length; i += 1) {
+            if (series.dist[i] < apexM) continue;
+            if (series.thr[i] >= 100) {
+              fullThrottleM = series.dist[i];
+              break;
+            }
+          }
+
+          if (fullThrottleM === null) {
+            const list = noThrottleByLabel.get(segment.label) ?? [];
+            list.push(lap.lapNumber);
+            noThrottleByLabel.set(segment.label, list);
+          } else {
+            const list = throttleByLabel.get(segment.label) ?? [];
+            list.push({ lapNumber: lap.lapNumber, value: fullThrottleM - apexM });
+            throttleByLabel.set(segment.label, list);
+          }
+        }
       }
     }
 
     const rows = order.map((label) => {
       const apex = (apexByLabel.get(label) ?? []).sort((a, b) => a.value - b.value);
       const brake = (brakeByLabel.get(label) ?? []).sort((a, b) => a.value - b.value);
+      const throttle = (throttleByLabel.get(label) ?? []).sort(
+        (a, b) => a.value - b.value,
+      );
 
       const apexValues = apex.map((entry) => entry.value);
       const apexMedian = median(apexValues);
@@ -193,6 +234,10 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
       const brakeValues = brake.map((entry) => entry.value);
       const brakeMedian = median(brakeValues);
       const brakeMad = madOf(brakeValues, brakeMedian);
+
+      const throttleValues = throttle.map((entry) => entry.value);
+      const thrMedianM = median(throttleValues);
+      const thrMad = madOf(throttleValues, thrMedianM);
 
       // The rule is named in the UI, as the plan requires, and it never removes a lap.
       const isOutlier = (value: number, centre: number, mad: number) =>
@@ -214,6 +259,12 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
           isOutlier(e.value, brakeMedian, brakeMad),
         ),
         noBrakeLaps: noBrakeByLabel.get(label) ?? [],
+        nThr: throttle.length,
+        thrMedianM,
+        thrMin: throttleValues[0] ?? NaN,
+        thrMax: throttleValues[throttleValues.length - 1] ?? NaN,
+        thrOutliers: throttle.filter((e) => isOutlier(e.value, thrMedianM, thrMad)),
+        noFullThrottleLaps: noThrottleByLabel.get(label) ?? [],
       };
     });
 
@@ -256,6 +307,9 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
           outlier = |x − median| &gt; {OUTLIER_MAD} · MAD where MAD &gt; 0; marked, never
           removed
         </span>
+        <span className="font-mono text-[10px] text-muted">
+          apex in km/h · brake and throttle pick-up in metres from the apex
+        </span>
       </header>
 
       <div className="mt-2 overflow-x-auto">
@@ -272,6 +326,10 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
               <th className="px-2 py-1 text-right font-normal">brake med</th>
               <th className="px-2 py-1 text-right font-normal">span</th>
               <th className="px-2 py-1 text-left font-normal">outliers</th>
+              <th className="px-2 py-1 text-right font-normal">n thr</th>
+              <th className="px-2 py-1 text-right font-normal">thr med</th>
+              <th className="px-2 py-1 text-right font-normal">span</th>
+              <th className="px-2 py-1 text-left font-normal">no 100 %</th>
             </tr>
           </thead>
           <tbody>
@@ -347,6 +405,33 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
                       L{outlier.lapNumber}
                     </button>
                   ))}
+                </td>
+                <td className="px-2 py-0.5 text-right text-muted">
+                  {row.nThr}
+                </td>
+                <td className="px-2 py-0.5 text-right">
+                  {Number.isFinite(row.thrMedianM)
+                    ? `${oneDp.format(row.thrMedianM)} m`
+                    : "–"}
+                </td>
+                <td className="px-2 py-0.5 text-right text-muted">
+                  {Number.isFinite(row.thrMin) && Number.isFinite(row.thrMax)
+                    ? `${oneDp.format(row.thrMin)}–${oneDp.format(row.thrMax)}`
+                    : "–"}
+                </td>
+                <td className="px-2 py-0.5 text-left">
+                  {row.noFullThrottleLaps.length === 0 ? (
+                    <span className="text-muted/40">·</span>
+                  ) : (
+                    <span
+                      title={`never reached 100 % throttle here: ${row.noFullThrottleLaps
+                        .map((n) => `L${n}`)
+                        .join(", ")} — excluded from the median above, not counted as 0 m`}
+                      className="text-warning"
+                    >
+                      {row.noFullThrottleLaps.map((n) => `L${n}`).join(" ")}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
