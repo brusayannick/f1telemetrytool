@@ -612,7 +612,7 @@ Jede Kennzahl gehört genau einer Ebene, und jede Anzeige nennt ihre Ebene. Ein
 | Segmentzeit | Segment | `dist`, `t` | Zeitdifferenz an Segmentgrenzen | gemessen |
 | `timeDeltaMs` | Kurve | Δ-Trace | Differenz zwischen dem Ende der vorigen und dem Ende dieser Kurve (Zuwachs, geklemmt am Mittelpunkt) | gemessen |
 | Scheitelgeschwindigkeit | Phase | `speed` | Minimum im Kurvenabschnitt | gemessen |
-| Bremspunkt | Phase | `brk`, `dist` | letzte Bremsprobe vor dem Scheitel | gemessen |
+| Bremspunkt | Phase | `brk`, `dist` | **Anfang** des zusammenhängenden Bremslaufs, der vor dem Scheitel endet; Rückblick 400 m, verworfen wenn das Bremsende mehr als 200 m vor dem Scheitel liegt. **Nicht** „letzte Bremsprobe im eigenen Fenster" — das stand hier falsch | gemessen |
 | Gasannahme | Phase | `thr`, `dist` | Distanz Scheitel → 100 % Gas | gemessen |
 | Schalt-RPM | Sample | `rpm`, `gear` | RPM beim Gangwechsel | gemessen |
 | Δt-Beitrag Bremsung | Kurve | abgeleitet | Modell über Bremswegdifferenz | **Modell** |
@@ -1340,9 +1340,37 @@ den Bremspunkt einer anderen zuschreiben. Das ist derselbe Fehlertyp wie B17 —
 die plausibel aussieht und zur falschen Sache gehört. Die Datenlage macht es schlimmer:
 mit n = 2 fällt es nur auf, weil die beiden Werte **exakt gleich** sind; bei n = 15 wäre es
 ald normale Streuung untergegangen.
-**Status: offen** — der nächste Schritt ist eine Messung: für jede Kurve `brakeFromM`
-gegen `fromM` und gegen den Ausgang der vorigen Kurve stellen. Liegt der Bremspunkt **vor**
-dem eigenen Fensteranfang oder innerhalb der vorigen Kurve, ist er nicht der eigene.
+**Status: offen — Ursache bewiesen, ein Verbraucher von vier behoben.**
+
+**Der Beweis (Algebra, vom Agenten geprüft):** `buildSegments` öffnet das Fenster einer Kurve
+mit `from = max(cursor, brakeDist, startM)`. Da `max` jedes Argument dominiert, gilt
+**`brakeFromM <= fromM` strukturell immer** — es gibt keinen Codepfad, auf dem der
+Bremspunkt echt innerhalb seines eigenen Segments liegt. **Gleichheit ist der Normalfall**
+(das Fenster öffnet genau am Bremspunkt); eine echte Ungleichung heißt, dass der Wert zu
+einem früheren Segment gehört. Zwei Kurven können denselben `brakeDist` bekommen, wenn ihre
+Scheitel im selben zusammenhängenden Bremslauf liegen — bei Abu Dhabi T1/T2 der Fall.
+
+**Warum die Definition im Plan falsch war:** `brakeDist` ist nicht „die letzte Bremsprobe
+vor dem Scheitel", sondern der **Anfang des Bremslaufs** (`corners.ts:186–206`, der Code
+läuft rückwärts bis `brk <= 0`), und das Suchfenster ist ein **400-m-Rückblick**
+(`BRAKE_LOOKBACK_M`), **nicht** das ±80-m-Fenster der Kurve. Der Rückblick ist auch nicht
+am Mittelpunkt zur Nachbarkurve geklemmt — genau deshalb kann eine Kurve die Bremszone der
+vorigen übernehmen. Die Katalog-Zeile in §6.3 wurde korrigiert.
+
+**Behoben:** `consistency-panel` zählt einen Bremspunkt nur, wenn er in seinem eigenen
+Segment liegt; sonst erscheint er als **⤺** mit Grund statt im Median. `workbench-chart`s
+Spalte „brake from" schreibt **⤺ prev** statt einer Zahl. Gemessen: T2s Median ist damit
+nicht mehr T1s Wert.
+
+**Noch nicht behoben — drei Verbraucher tragen den rohen Wert weiter:**
+1. `compare-charts` — die Spalte **„Brake"** und der Ranglisten-Text (`rankLosses`:
+   „N m später gebremst") wiederholen für T2 die Δ von T1, **mit Urteilssatz**.
+2. `corner-breakdown` — `brakeDist` ist die Grenze zwischen `approachMs` und `brakeMs`.
+   Bei einem geerbten Wert klemmt sie auf den Segmentanfang, und der **ganze Anlauf** der
+   späteren Kurve wird im Compare als „bremsen" beschriftet.
+3. Der Plan selbst, §6.3 — erledigt.
+**Nächster Schritt:** dieselbe Positionsprüfung in `cornerDeltas` und `corner-breakdown`,
+wo der Wert über `cornerPerformance` direkt kommt und gar nicht geschützt ist.
 
 ### B22 — Der Verkehrsfilter lässt zwei von achtzehn Runden übrig
 **Messung:** Das Konsistenz-Panel zählt auf Abu Dhabi Q, Fahrer 1 **2 Runden** von 18 — die
@@ -1374,7 +1402,7 @@ Die drei verschiedenen Grundgesamtheiten sollten sichtbar sein.
 | B14 | offen — Regeländerung gemessen und **verworfen** (Regel ist stabil, Form-Regel misst weniger); Konsequenz für Arbeitsstrom I |
 | B15 | **Ursache behoben** — kumuliert → Zuwachs, Klemme am Mittelpunkt; Rest = Methodendifferenz, sichtbar ausgewiesen |
 | B22 | offen — der Verkehrsfilter lässt 2 von 18 Runden; drei Panels zählen drei verschiedene Grundgesamtheiten |
-| B21 | offen — der Bremspunkt kann zur falschen Kurve gehören (T1/T2 byte-identisch bei n = 2); Messung benannt |
+| B21 | **Ursache bewiesen, teilweise behoben** — `brakeFromM <= fromM` ist strukturell immer wahr (Gleichheit ist der Normalfall), zwei Kurven können denselben Bremslauf erben; Konsistenz-Panel und Lane-Tabelle geschützt, `compare-charts` und `corner-breakdown` noch nicht; die Plan-Definition war zusätzlich falsch |
 | B20 | erledigt — der Fetch war bereits dedupliziert (1 statt 3), gemessen; die CPU-Doppelarbeit ist als **unmessiert** dokumentiert und wird bewusst nicht „optimiert“ |
 | B19 | erledigt — Sektorzeiten waren da und ungelesen, F21 gebaut; der Datenvertrag nennt Sektoren nicht, das ist notiert |
 | B18 | erledigt — fünf Defekte aus einer Agenten-Prüfung behoben; der schwerste war ein behaupteter Verkehrsfilter, der nie lief |

@@ -48,6 +48,15 @@ type CornerStats = {
   brakeOutliers: { lapNumber: number; value: number }[];
   /** Laps that never braked for this corner, so they cannot inform its braking point. */
   noBrakeLaps: number[];
+  /**
+   * Laps that braked, but whose braking point lies in the *previous* corner's segment.
+   *
+   * `buildSegments` opens a corner's window at `max(cursor, brakeDist)`, so when the previous
+   * corner's exit falls later than this one's braking, `brakeFromM` sits before `fromM` —
+   * inside the previous segment. Reporting it here would attribute another corner's braking
+   * to this one, which is what produced byte-identical values for T1 and T2 (B21).
+   */
+  brakeBeforeWindowLaps: number[];
   /** F23 — metres from the apex to the first full-throttle sample. */
   nThr: number;
   thrMedianM: number;
@@ -129,6 +138,7 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
     const apexByLabel = new Map<string, { lapNumber: number; value: number }[]>();
     const brakeByLabel = new Map<string, { lapNumber: number; value: number }[]>();
     const noBrakeByLabel = new Map<string, number[]>();
+    const brakeBeforeWindowByLabel = new Map<string, number[]>();
     const throttleByLabel = new Map<string, { lapNumber: number; value: number }[]>();
     const noThrottleByLabel = new Map<string, number[]>();
     const order: string[] = [];
@@ -180,10 +190,18 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
           apexByLabel.set(segment.label, list);
         }
 
-        if (segment.brakeFromM !== null) {
+        // A braking point only counts for this corner when it lies inside this corner's own
+        // segment. Otherwise it belongs to the previous corner — see the field's doc comment
+        // and B21: this is what made T1 and T2 show identical braking medians.
+        const brakeFromM = segment.brakeFromM;
+        if (brakeFromM !== null && brakeFromM >= segment.fromM) {
           const list = brakeByLabel.get(segment.label) ?? [];
-          list.push({ lapNumber: lap.lapNumber, value: segment.brakeFromM });
+          list.push({ lapNumber: lap.lapNumber, value: brakeFromM });
           brakeByLabel.set(segment.label, list);
+        } else if (brakeFromM !== null) {
+          const list = brakeBeforeWindowByLabel.get(segment.label) ?? [];
+          list.push(lap.lapNumber);
+          brakeBeforeWindowByLabel.set(segment.label, list);
         } else {
           const list = noBrakeByLabel.get(segment.label) ?? [];
           list.push(lap.lapNumber);
@@ -259,6 +277,7 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
           isOutlier(e.value, brakeMedian, brakeMad),
         ),
         noBrakeLaps: noBrakeByLabel.get(label) ?? [],
+        brakeBeforeWindowLaps: brakeBeforeWindowByLabel.get(label) ?? [],
         nThr: throttle.length,
         thrMedianM,
         thrMin: throttleValues[0] ?? NaN,
@@ -378,6 +397,16 @@ export function ConsistencyPanel({ url, laps, corners = null, onPickLap }: Props
                       className="ml-1 text-muted/50"
                     >
                       −{row.noBrakeLaps.length}
+                    </span>
+                  )}
+                  {row.brakeBeforeWindowLaps.length > 0 && (
+                    <span
+                      title={`braked, but the braking point lies in the previous corner's segment: ${row.brakeBeforeWindowLaps
+                        .map((n) => `L${n}`)
+                        .join(", ")} — not this corner's braking point, so not reported here`}
+                      className="ml-1 text-warning"
+                    >
+                      ⤺{row.brakeBeforeWindowLaps.length}
                     </span>
                   )}
                 </td>
