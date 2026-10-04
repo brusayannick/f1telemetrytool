@@ -10,6 +10,7 @@ import { WorkbenchChart, type WorkbenchLap } from "@/components/workbench-chart"
 import { SegmentMatrix } from "@/components/segment-matrix";
 import { ConsistencyPanel } from "@/components/consistency-panel";
 import { SectorPanel } from "@/components/sector-panel";
+import { GearHistogram } from "@/components/gear-histogram";
 import {
   Skeleton,
   SkeletonChart,
@@ -403,6 +404,10 @@ export default function SessionPage() {
 
       {laps && laps.length > 0 && (
         <SectorPanel laps={laps} onPickLap={setLapNumber} />
+      )}
+
+      {activeTelemetry?.url && laps && laps.length > 0 && (
+        <GearHistogram url={activeTelemetry.url} laps={laps} />
       )}
 
       <section className="mt-6">
